@@ -1,0 +1,64 @@
+import torch
+
+def psnr(pred, target, max_val=1.0):
+    """
+    Compute Peak Signal-to-Noise Ratio
+    pred, target: tensors [B, C, H, W]
+    max_val: maximum possible pixel value
+    """
+    mse = torch.mean((pred - target) ** 2)
+    if mse == 0:
+        return float('inf')
+    return 20 * torch.log10(max_val / torch.sqrt(mse))
+
+@torch.no_grad()
+def evaluate(model, loader, device, criterion=None, return_examples=0):
+    """
+    Evaluate model on DataLoader.
+    
+    Args:
+        model: your ResidualUNet
+        loader: DataLoader
+        device: torch device
+        criterion: loss function (optional)
+        return_examples: number of example predictions to return
+        
+    Returns:
+        avg_loss: average loss over dataset (if criterion given)
+        avg_psnr: average PSNR
+        examples: list of tuples (input, clean_pred, target) for inspection
+    """
+    model.eval()
+    total_loss = 0.0
+    total_psnr = 0.0
+    n_batches = 0
+    examples = []
+
+    for x, y in loader:
+        x = x.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
+
+        clean_pred, background_pred = model(x)
+
+        if criterion is not None:
+            loss = criterion(clean_pred, y)
+            total_loss += loss.item()
+
+        # Compute PSNR per batch
+        batch_psnr = psnr(clean_pred, y, max_val=y.max().item())
+        total_psnr += batch_psnr
+
+        n_batches += 1
+
+        # Save some examples if requested
+        if return_examples > 0 and len(examples) < return_examples:
+            examples.append((
+                x.cpu(),
+                clean_pred.cpu(),
+                y.cpu()
+            ))
+
+    avg_loss = total_loss / n_batches if criterion is not None else None
+    avg_psnr = total_psnr / n_batches
+
+    return avg_loss, avg_psnr, examples

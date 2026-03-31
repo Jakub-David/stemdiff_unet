@@ -1,0 +1,22 @@
+[project]
+name = "diplomka"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.1",
+    "opencv-python>=4.13.0.92",
+    "pandas>=2.3.3",
+    "pdoc>=16.0.0",
+    "pillow>=12.1.0",
+    "pybaselines>=1.2.1",
+    "pymatgen>=2025.10.7",
+    "scikit-image>=0.26.0",
+    "scipy>=1.17.0",
+    "stemdiff>=5.2.11",
+    "tensorboard>=2.20.0",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
+]
