@@ -2,6 +2,7 @@ from unet import ResidualUNet
 from data import STEMDataset
 from eval import evaluate
 from plot import show_diffractograms, show_1D_profiles
+from pavlina import PavlinaModel
 from torch.utils.data import random_split, DataLoader
 import torch
 import torch.nn as nn
@@ -94,7 +95,12 @@ def main(experiment_name):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Model
-    model = ResidualUNet(in_channels=1, base_channels=8, logspace=True).to(device)
+    model = ResidualUNet(
+        in_channels=1, 
+        base_channels=8, 
+        logspace=False,
+        normalize=False
+    ).to(device)
 
     # Loss & optimizer
     criterion = nn.HuberLoss()
@@ -141,12 +147,7 @@ def main(experiment_name):
         # 3. Checkpointing
         # -------------------------------
         checkpoint_path = os.path.join(checkpoint_dir, f"residual_unet_epoch{epoch+1}.pt")
-        torch.save({
-            "epoch": epoch + 1,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "loss": avg_loss,
-        }, checkpoint_path)
+        model.save(checkpoint_path, epoch, optimizer, avg_loss)
 
     writer.close()
 
@@ -154,22 +155,36 @@ def test(model_path):
     train_loader, val_loader, test_loader = init_data()
 
     # Model
-    model = ResidualUNet(in_channels=1, base_channels=8, logspace=True).to(device)
+    # model = ResidualUNet(in_channels=1, base_channels=8, logspace=False, normalize=False).to(device)
+    model, _ = ResidualUNet.load(model_path).to(device)
 
-    checkpoint = torch.load(model_path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    avg_loss, avg_psnr, examples = evaluate(model, test_loader, device, return_examples=1)
+    avg_loss, avg_psnr, examples = evaluate(model, val_loader, device, return_examples=1)
     print("avg loss:", avg_loss)
     print("avg psnr:", avg_psnr)
     x, clean, y = examples[0]
-    for i in range(20):
-        show_diffractograms(x[i, 0], clean[i, 0])
-        show_1D_profiles(x[i, 0].numpy(), y[i, 0].numpy())
-        show_1D_profiles(x[i, 0].numpy(), clean[i, 0].numpy())
+
+    pav = PavlinaModel()
+    pavlina_clean = pav(x)[0]
+    for i in range(32):
+        show_diffractograms({
+            "Original": x[i, 0], 
+            "Result": clean[i, 0], 
+            "Pavlina": pavlina_clean[i, :, :, 0]
+        })
+        show_1D_profiles({
+            "Original": (x[i, 0].numpy(), "blue"), 
+            "Target": (y[i, 0].numpy(), "--r"), 
+            "Result": (clean[i, 0].numpy(), "green"), 
+            "Pavlina": (pavlina_clean[i], "-.m")
+        })
 
 
 if __name__ == "__main__":
-    experiment_name = "logspace+normalize"
+    experiment_name = "logspace=False, normalize=False"
     experiment_dir = f"{datetime.datetime.now()}_{experiment_name}"
     main(experiment_dir)
     test(f"checkpoints/{experiment_dir}/residual_unet_epoch20.pt")
+
+    # test("checkpoints/2026-04-01 15:08:51.931140_logspace+normalize/residual_unet_epoch20.pt")
+    # test("checkpoints/2026-04-01 11:07:01.322811_/residual_unet_epoch20.pt")
+    # test("checkpoints/2026-04-01 16:38:14.503884_normalize/residual_unet_epoch20.pt")

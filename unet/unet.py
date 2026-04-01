@@ -21,10 +21,14 @@ class DoubleConv(nn.Module):
 
 class ResidualUNet(nn.Module):
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
-                 logspace=False, normalize=True):
+                 logspace=False, normalize=True, predict_background=True):
         super().__init__()
+        self.in_channels = in_channels
+        self.base_channels = base_channels
+        self.dropout = dropout
         self.logspace = logspace
         self.normalize = normalize
+        self.predict_background = predict_background
 
         c1 = base_channels
         c2 = base_channels * 2
@@ -98,16 +102,54 @@ class ResidualUNet(nn.Module):
         u1 = torch.cat([u1, d1], dim=1)
         u1 = self.conv1(u1)
 
-        background = self.final(u1)
+        output = self.final(u1)
 
         if self.normalize:
             # Undo normalization
-            background = background * std + mean
+            output = output * std + mean
 
         if self.logspace:
-            background = torch.expm1(background)
+            output = torch.expm1(output)
 
-        # Residual output
-        clean = input_img - background
+        if self.predict_background:
+            # Residual output
+            background = output
+            clean = input_img - background
+        else:
+            background = None
+            clean = output
 
         return clean, background
+    
+    def save(self, path, epoch=None, optimizer=None, avg_loss=None):
+        torch.save({
+            # Weights
+            "model_state_dict": self.state_dict(),
+            # Parameters
+            "in_channels": self.in_channels,
+            "base_channels": self.base_channels,
+            "dropout": self.dropout,
+            "logspace": self.logspace,
+            "normalize": self.normalize,
+            "predict_background": self.predict_background,
+            # Training state
+            "epoch": epoch,
+            "optimizer_state_dict": optimizer.state_dict() if optimizer else None,
+            "loss": avg_loss,
+        }, path)
+
+    @staticmethod
+    def load(path):
+        c = torch.load(path)
+
+        model = ResidualUNet(
+            in_channels=c["in_channels"],
+            base_channels=c["base_channels"],
+            dropout=c["dropout"],
+            logspace=c["logspace"],
+            normalize=c["normalize"],
+            predict_background=c["predict_background"],
+        )
+        model.load_state_dict(c['model_state_dict'])
+
+        return model, c
