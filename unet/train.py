@@ -169,7 +169,7 @@ def test(model_path):
 
 
 if __name__ == "__main__":
-    experiment_name = "logspace"
+    experiment_name = "logspace+normalize"
     experiment_dir = f"{datetime.datetime.now()}_{experiment_name}"
     main(experiment_dir)
     test(f"checkpoints/{experiment_dir}/residual_unet_epoch20.pt")

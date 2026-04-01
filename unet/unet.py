@@ -21,9 +21,10 @@ class DoubleConv(nn.Module):
 
 class ResidualUNet(nn.Module):
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
-                 logspace=False):
+                 logspace=False, normalize=True):
         super().__init__()
         self.logspace = logspace
+        self.normalize = normalize
 
         c1 = base_channels
         c2 = base_channels * 2
@@ -62,6 +63,14 @@ class ResidualUNet(nn.Module):
 
         if self.logspace:
             x = torch.log1p(x)
+            
+        if self.normalize:
+            # Compute per-image mean/std (over C, H, W)
+            mean = x.mean(dim=(1, 2, 3), keepdim=True)
+            std = x.std(dim=(1, 2, 3), keepdim=True)
+
+            # Normalize
+            x = (x - mean) / (std + 1e-6)
 
         # Encoder
         d1 = self.down1(x)
@@ -90,6 +99,10 @@ class ResidualUNet(nn.Module):
         u1 = self.conv1(u1)
 
         background = self.final(u1)
+
+        if self.normalize:
+            # Undo normalization
+            background = background * std + mean
 
         if self.logspace:
             background = torch.expm1(background)
