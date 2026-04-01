@@ -20,8 +20,10 @@ class DoubleConv(nn.Module):
 
 
 class ResidualUNet(nn.Module):
-    def __init__(self, in_channels=1, base_channels=8, dropout=0.1):
+    def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
+                 logspace=False):
         super().__init__()
+        self.logspace = logspace
 
         c1 = base_channels
         c2 = base_channels * 2
@@ -58,6 +60,9 @@ class ResidualUNet(nn.Module):
     def forward(self, x):
         input_img = x
 
+        if self.logspace:
+            x = torch.log1p(x)
+
         # Encoder
         d1 = self.down1(x)
         d2 = self.down2(self.pool(d1))
@@ -85,6 +90,9 @@ class ResidualUNet(nn.Module):
         u1 = self.conv1(u1)
 
         background = self.final(u1)
+
+        if self.logspace:
+            background = torch.expm1(background)
 
         # Residual output
         clean = input_img - background

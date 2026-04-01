@@ -94,7 +94,7 @@ def main(experiment_name):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Model
-    model = ResidualUNet(in_channels=1, base_channels=8).to(device)
+    model = ResidualUNet(in_channels=1, base_channels=8, logspace=True).to(device)
 
     # Loss & optimizer
     criterion = nn.HuberLoss()
@@ -154,7 +154,7 @@ def test(model_path):
     train_loader, val_loader, test_loader = init_data()
 
     # Model
-    model = ResidualUNet(in_channels=1, base_channels=8).to(device)
+    model = ResidualUNet(in_channels=1, base_channels=8, logspace=True).to(device)
 
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -169,7 +169,7 @@ def test(model_path):
 
 
 if __name__ == "__main__":
-    experiment_name = "dropout=0.1"
+    experiment_name = "logspace"
     experiment_dir = f"{datetime.datetime.now()}_{experiment_name}"
     main(experiment_dir)
     test(f"checkpoints/{experiment_dir}/residual_unet_epoch20.pt")
