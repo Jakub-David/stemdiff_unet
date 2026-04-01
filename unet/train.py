@@ -9,6 +9,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 import os
+import datetime
 import numpy as np
 from tqdm import tqdm
 
@@ -28,8 +29,6 @@ torch.backends.cudnn.benchmark = False
 # Paths
 input_dir = "dataset/x_input"
 target_dir = "dataset/x_target"
-checkpoint_dir = "checkpoints"
-os.makedirs(checkpoint_dir, exist_ok=True)
 
 # Hyperparameters
 batch_size = 32
@@ -88,8 +87,11 @@ def init_data():
 
     return train_loader, val_loader, test_loader
 
-def main():
+def main(experiment_name):
     train_loader, val_loader, test_loader = init_data()
+
+    checkpoint_dir = f"checkpoints/{experiment_name}"
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Model
     model = ResidualUNet(in_channels=1, base_channels=8).to(device)
@@ -99,7 +101,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # TensorBoard
-    writer = SummaryWriter("runs/stem_training")
+    writer = SummaryWriter(f"runs/{experiment_name}")
 
     # -------------------------------
     # 2. Training loop
@@ -167,5 +169,7 @@ def test(model_path):
 
 
 if __name__ == "__main__":
-    # main()
-    test("checkpoints/residual_unet_epoch20.pt")
+    experiment_name = "dropout=0.1"
+    experiment_dir = f"{datetime.datetime.now()}_{experiment_name}"
+    main(experiment_dir)
+    test(f"checkpoints/{experiment_dir}/residual_unet_epoch20.pt")

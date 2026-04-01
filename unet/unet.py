@@ -3,13 +3,16 @@ import torch.nn as nn
 
 
 class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, dropout=0.0):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, padding=1),
             nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
+
             nn.Conv2d(out_channels, out_channels, 3, padding=1),
             nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
         )
 
     def forward(self, x):
@@ -17,7 +20,7 @@ class DoubleConv(nn.Module):
 
 
 class ResidualUNet(nn.Module):
-    def __init__(self, in_channels=1, base_channels=8):
+    def __init__(self, in_channels=1, base_channels=8, dropout=0.1):
         super().__init__()
 
         c1 = base_channels
@@ -29,28 +32,27 @@ class ResidualUNet(nn.Module):
         self.pool = nn.MaxPool2d(2)
 
         # Encoder
-        self.down1 = DoubleConv(in_channels, c1)
-        self.down2 = DoubleConv(c1, c2)
-        self.down3 = DoubleConv(c2, c3)
-        self.down4 = DoubleConv(c3, c4)
+        self.down1 = DoubleConv(in_channels, c1, dropout=0.0)
+        self.down2 = DoubleConv(c1, c2, dropout=dropout * 0.5)
+        self.down3 = DoubleConv(c2, c3, dropout=dropout)
+        self.down4 = DoubleConv(c3, c4, dropout=dropout)
 
-        # Bottleneck
-        self.bottleneck = DoubleConv(c4, c5)
+        # Bottleneck (strongest dropout)
+        self.bottleneck = DoubleConv(c4, c5, dropout=dropout)
 
         # Decoder
         self.up4 = nn.ConvTranspose2d(c5, c4, 2, stride=2)
-        self.conv4 = DoubleConv(c4 * 2, c4)
+        self.conv4 = DoubleConv(c4 * 2, c4, dropout=dropout)
 
         self.up3 = nn.ConvTranspose2d(c4, c3, 2, stride=2)
-        self.conv3 = DoubleConv(c3 * 2, c3)
+        self.conv3 = DoubleConv(c3 * 2, c3, dropout=dropout)
 
         self.up2 = nn.ConvTranspose2d(c3, c2, 2, stride=2)
-        self.conv2 = DoubleConv(c2 * 2, c2)
+        self.conv2 = DoubleConv(c2 * 2, c2, dropout=dropout * 0.5)
 
         self.up1 = nn.ConvTranspose2d(c2, c1, 2, stride=2)
-        self.conv1 = DoubleConv(c1 * 2, c1)
+        self.conv1 = DoubleConv(c1 * 2, c1, dropout=0.0)
 
-        # Output = background
         self.final = nn.Conv2d(c1, in_channels, kernel_size=1)
 
     def forward(self, x):
