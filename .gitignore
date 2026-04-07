@@ -13,5 +13,4 @@ wheels/
 # Data
 DATA.STEMDIFF/
 unet/dataset/
-unet/checkpoints/
 unet/runs/

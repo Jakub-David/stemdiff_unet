@@ -31,14 +31,20 @@ torch.backends.cudnn.benchmark = False
 input_dir = "dataset/x_input"
 target_dir = "dataset/x_target"
 
-# Hyperparameters
-batch_size = 32
-lr = 1e-3
-num_epochs = 20
-patch_size = None
-log_interval = 20  # log every N batches
+# --- HELPER FUNCTION FOR NAMING ---
+def generate_experiment_name(config):
+    """
+    Converts a config dictionary into a string: 
+    'lr=0.001_base_channels=8_logspace=True'
+    """
+    # We sort the keys so that the same parameters always produce the same string
+    parts = []
+    for k in sorted(config.keys()):
+        parts.append(f"{k}={config[k]}")
+    return "_".join(parts)
 
-def init_data():
+
+def init_data(batch_size):
     # Dataset & DataLoader
     dataset = STEMDataset(input_dir, target_dir)
 
@@ -88,31 +94,45 @@ def init_data():
 
     return train_loader, val_loader, test_loader
 
-def main(experiment_name):
-    train_loader, val_loader, test_loader = init_data()
+def train(config):
+    # 1. Extract parameters from config
+    lr = config['lr']
+    num_epochs = config['num_epochs']
+    log_interval = config.get('log_interval', 20)
+    batch_size = config.get('batch_size', 32)
+    
+    # Model params
+    model_params = config['model_params']
 
-    checkpoint_dir = f"checkpoints/{experiment_name}"
+    train_loader, val_loader, test_loader = init_data(batch_size)
+
+    # 2. Generate unique experiment name based on params + timestamp
+    # Timestamp prevents overwriting if you run the same params twice
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    param_string = generate_experiment_name(config)
+    experiment_id = f"{timestamp}_{param_string}"
+
+    checkpoint_dir = f"runs/{experiment_id}"
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Model
-    model = ResidualUNet(
-        in_channels=1, 
-        base_channels=8, 
-        logspace=False,
-        normalize=False
-    ).to(device)
+    model = ResidualUNet(**model_params).to(device)
 
     # Loss & optimizer
     criterion = nn.HuberLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # TensorBoard
-    writer = SummaryWriter(f"runs/{experiment_name}")
+    writer = SummaryWriter(f"runs/{experiment_id}")
+
+    print(f"Starting experiment: {experiment_id}")
 
     # -------------------------------
     # 2. Training loop
     # -------------------------------
     global_step = 0
+    val_avg_loss = 0
+    val_avg_psnr = 0
     for epoch in tqdm(range(num_epochs)):
         model.train()
         epoch_loss = 0.0
@@ -151,16 +171,25 @@ def main(experiment_name):
 
     writer.close()
 
-def test(model_path):
-    train_loader, val_loader, test_loader = init_data()
+def test(experiment_id, batch_size=32, epoch=20, show_plots=True):
+    # Reconstruct the path using the returned ID
+    model_path = f"checkpoints/{experiment_id}/residual_unet_epoch{epoch}.pt"
+
+
+    train_loader, val_loader, test_loader = init_data(batch_size)
 
     # Model
-    # model = ResidualUNet(in_channels=1, base_channels=8, logspace=False, normalize=False).to(device)
-    model, _ = ResidualUNet.load(model_path).to(device)
+    model, _ = ResidualUNet.load(model_path)
+    model = model.to(device)
 
     avg_loss, avg_psnr, examples = evaluate(model, val_loader, device, return_examples=1)
+    print(f"Test Results for {experiment_id}:")
     print("avg loss:", avg_loss)
     print("avg psnr:", avg_psnr)
+
+    if not show_plots:
+        return
+
     x, clean, y = examples[0]
 
     pav = PavlinaModel()
@@ -180,11 +209,22 @@ def test(model_path):
 
 
 if __name__ == "__main__":
-    experiment_name = "logspace=False, normalize=False"
-    experiment_dir = f"{datetime.datetime.now()}_{experiment_name}"
-    main(experiment_dir)
-    test(f"checkpoints/{experiment_dir}/residual_unet_epoch20.pt")
+    config = {
+        "lr": 1e-3,
+        "num_epochs": 20,
+        "log_interval": 20,
+        "batch_size": 32,
+        "model_params": {
+            "in_channels": 1,
+            "base_channels": 8,
+            "logspace": True,
+            "normalize": False,
+            "predict_background": True
+        }
+    }
 
-    # test("checkpoints/2026-04-01 15:08:51.931140_logspace+normalize/residual_unet_epoch20.pt")
-    # test("checkpoints/2026-04-01 11:07:01.322811_/residual_unet_epoch20.pt")
-    # test("checkpoints/2026-04-01 16:38:14.503884_normalize/residual_unet_epoch20.pt")
+    # Run training
+    exp_id = train(config)
+    
+    # Run testing
+    test(exp_id)
