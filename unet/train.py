@@ -106,8 +106,7 @@ def train(config):
 
     train_loader, val_loader, test_loader = init_data(batch_size)
 
-    # 2. Generate unique experiment name based on params + timestamp
-    # Timestamp prevents overwriting if you run the same params twice
+    # 2. Generate unique experiment name
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     param_string = generate_experiment_name(config)
     experiment_id = f"{timestamp}_{param_string}"
@@ -124,6 +123,7 @@ def train(config):
 
     # TensorBoard
     writer = SummaryWriter(f"runs/{experiment_id}")
+    inputs_targets_logged = False
 
     print(f"Starting experiment: {experiment_id}")
 
@@ -154,10 +154,27 @@ def train(config):
 
             # Logging
             if global_step % log_interval == 0:
-                val_avg_loss, val_avg_psnr, _ = evaluate(model, val_loader, device, criterion)
+                val_avg_loss, val_avg_psnr, examples = evaluate(
+                    model, val_loader, device, criterion, return_examples=1
+                )
+                
                 writer.add_scalar("Loss/train", loss.item(), global_step)
                 writer.add_scalar("AvgLoss/val", val_avg_loss, global_step)
                 writer.add_scalar("AvgPSNR/val", val_avg_psnr, global_step)
+
+                # Log Images to TensorBoard
+                if examples is not None and len(examples) > 0:
+                    x_batch, clean_batch, y_batch = examples[0]
+                    log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
+                    
+                    if not inputs_targets_logged:
+                        # We log a small subset (e.g., first 4) to save space
+                        writer.add_images("Static/Input", x_batch[log_idx].detach().cpu(), global_step)
+                        writer.add_images("Static/Target", y_batch[log_idx].detach().cpu(), global_step)
+                        inputs_targets_logged = True
+
+                    writer.add_images("Progress/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
+                
             global_step += 1
 
         avg_loss = epoch_loss / len(train_loader)
@@ -171,9 +188,11 @@ def train(config):
 
     writer.close()
 
+    return experiment_id
+
 def test(experiment_id, batch_size=32, epoch=20, show_plots=True):
     # Reconstruct the path using the returned ID
-    model_path = f"checkpoints/{experiment_id}/residual_unet_epoch{epoch}.pt"
+    model_path = f"runs/{experiment_id}/residual_unet_epoch{epoch}.pt"
 
 
     train_loader, val_loader, test_loader = init_data(batch_size)
@@ -194,7 +213,7 @@ def test(experiment_id, batch_size=32, epoch=20, show_plots=True):
 
     pav = PavlinaModel()
     pavlina_clean = pav(x)[0]
-    for i in range(32):
+    for i in range(batch_size):
         show_diffractograms({
             "Original": x[i, 0], 
             "Result": clean[i, 0], 
@@ -212,7 +231,7 @@ if __name__ == "__main__":
     config = {
         "lr": 1e-3,
         "num_epochs": 20,
-        "log_interval": 20,
+        "log_interval": 40,
         "batch_size": 32,
         "model_params": {
             "in_channels": 1,
