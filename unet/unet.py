@@ -113,8 +113,12 @@ class ResidualUNet(nn.Module):
 
         if self.predict_background:
             # Residual output
-            background = output
-            clean = input_img - background
+            if self.training:
+                background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
+                clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
+            else:
+                background = torch.relu(output)
+                clean = torch.relu(input_img - background)
         else:
             background = None
             clean = output

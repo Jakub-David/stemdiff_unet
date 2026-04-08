@@ -177,7 +177,22 @@ def train(config):
                 
             global_step += 1
 
+        # Log end of epoch
         avg_loss = epoch_loss / len(train_loader)
+        val_avg_loss, val_avg_psnr, examples = evaluate(
+                    model, val_loader, device, criterion, return_examples=1
+        )
+        
+        writer.add_scalar("AvgLoss/train", avg_loss, global_step)
+        writer.add_scalar("AvgLoss/val", val_avg_loss, global_step)
+        writer.add_scalar("AvgPSNR/val", val_avg_psnr, global_step)
+
+        # Log Images to TensorBoard
+        if examples is not None and len(examples) > 0:
+            x_batch, clean_batch, y_batch = examples[0]
+            log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
+            writer.add_images("EndOfEpoch/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
+
         tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {val_avg_loss:.6f}, Avg val psnr: {val_avg_psnr:.6f},")
 
         # -------------------------------
@@ -190,7 +205,8 @@ def train(config):
 
     return experiment_id
 
-def test(experiment_id, batch_size=32, epoch=20, show_plots=True):
+def test(experiment_id, batch_size=32, epoch=20, show_plots=True, show_all=True,
+         show_idxs=None):
     # Reconstruct the path using the returned ID
     model_path = f"runs/{experiment_id}/residual_unet_epoch{epoch}.pt"
 
@@ -213,7 +229,10 @@ def test(experiment_id, batch_size=32, epoch=20, show_plots=True):
 
     pav = PavlinaModel()
     pavlina_clean = pav(x)[0]
-    for i in range(batch_size):
+    idxs = range(batch_size) if show_all else [0, 2, 6, 9, 14, 19, 20, 23, 26]
+    if show_idxs != None:
+        idxs = show_idxs
+    for i in idxs:
         show_diffractograms({
             "Original": x[i, 0], 
             "Result": clean[i, 0], 
@@ -229,14 +248,14 @@ def test(experiment_id, batch_size=32, epoch=20, show_plots=True):
 
 if __name__ == "__main__":
     config = {
-        "lr": 1e-3,
+        "lr": 1e-4,
         "num_epochs": 20,
-        "log_interval": 40,
+        "log_interval": 200,
         "batch_size": 32,
         "model_params": {
             "in_channels": 1,
             "base_channels": 8,
-            "logspace": True,
+            "logspace": False,
             "normalize": False,
             "predict_background": True
         }
