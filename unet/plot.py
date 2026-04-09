@@ -1,15 +1,19 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def show_diffractograms(imgs):
+def show_diffractograms(imgs, clip_max=None, clip_first=False):
 
     fig, axs = plt.subplots(1,len(imgs), figsize=(16,9))
+    first = True
     for ax, (name, img) in zip(axs, imgs.items()):
-        # img = np.clip(img, 0, img.max() * 0.05)
-        img = np.clip(img, 0, None)
-        img = np.log10(img + 1)
+        if clip_max != None and (clip_first or not first):
+            img = np.clip(img, 0, clip_max)
+        else:
+            img = np.clip(img, 0, None)
+            img = np.log10(img + 1)
         ax.set_title(name,fontsize=16)
         ax.imshow(img)
+        first = False
 
     plt.axis("off")
     
