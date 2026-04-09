@@ -27,26 +27,22 @@ torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-# Paths
-input_dir = "dataset/x_input"
-target_dir = "dataset/x_target"
-
 # --- HELPER FUNCTION FOR NAMING ---
 def generate_experiment_name(config):
     """
     Converts a config dictionary into a string: 
-    'lr=0.001_base_channels=8_logspace=True'
+    'lr=0.001-base_channels=8-logspace=True'
     """
     # We sort the keys so that the same parameters always produce the same string
     parts = []
     for k in sorted(config.keys()):
         parts.append(f"{k}={config[k]}")
-    return "_".join(parts)
+    return "-".join(parts)
 
 
-def init_data(batch_size):
+def init_data(dataset_dir, batch_size, seed=seed):
     # Dataset & DataLoader
-    dataset = STEMDataset(input_dir, target_dir)
+    dataset = STEMDataset(dataset_dir)
 
     # Define split fractions
     train_frac = 0.7
@@ -96,6 +92,7 @@ def init_data(batch_size):
 
 def train(config):
     # 1. Extract parameters from config
+    dataset_dir = config['dataset_dir']
     lr = config['lr']
     num_epochs = config['num_epochs']
     log_interval = config.get('log_interval', 20)
@@ -104,7 +101,7 @@ def train(config):
     # Model params
     model_params = config['model_params']
 
-    train_loader, val_loader, test_loader = init_data(batch_size)
+    train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
 
     # 2. Generate unique experiment name
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -248,6 +245,7 @@ def test(experiment_id, batch_size=32, epoch=20, show_plots=True, show_all=True,
 
 if __name__ == "__main__":
     config = {
+        "dataset_dir": "dataset",
         "lr": 1e-4,
         "num_epochs": 20,
         "log_interval": 200,

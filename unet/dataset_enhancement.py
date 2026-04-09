@@ -2,6 +2,7 @@ import numpy as np
 from plot import show_1D_profiles, show_diffractograms
 import torch
 from pathlib import Path
+import h5py
 
 def predict(model, data):
     data = data.astype(np.float32)
@@ -58,9 +59,9 @@ def process(name, model, thr, show_n=5, clip_max=1):
 
 def save_results(results, output_dir):
     output_dir = Path(output_dir)
-    new_input = output_dir / "x_input.npz"
-    new_target = output_dir / "x_target.npz"
-    orig_data = Path(f"dataset/x_input.npz")
+    new_input = output_dir / "x_input.h5"
+    new_target = output_dir / "x_target.h5"
+    orig_data = Path(f"dataset/x_input.h5")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,4 +69,15 @@ def save_results(results, output_dir):
     if not new_input.exists():
         new_input.symlink_to(".." / orig_data)
 
-    np.savez_compressed(new_target, **results)
+    with h5py.File(new_target, 'w') as hf:
+        for name, data in results.items():
+
+            chunk_shape = (1, *data.shape[1:])
+            
+            hf.create_dataset(
+                name, 
+                data=data,  
+                compression="gzip", 
+                chunks=chunk_shape,
+                shuffle=True 
+            )

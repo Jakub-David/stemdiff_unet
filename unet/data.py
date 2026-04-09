@@ -1,34 +1,50 @@
-import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from pathlib import Path
+import h5py
 
 
 class STEMDataset(Dataset):
-    def __init__(self, input_dir, target_dir):
-        self.input_dir = input_dir
-        self.target_dir = target_dir
+    def __init__(self, dataset_dir):
+        self.dataset_dir = Path(dataset_dir)
+        self.input_h5 = self.dataset_dir / "x_input.h5"
+        self.target_h5 = self.dataset_dir / "x_target.h5"
 
-        self.input_files = sorted(os.listdir(input_dir))
-        self.target_files = sorted(os.listdir(target_dir))
-        assert len(self.input_files) == len(self.target_files)
-
-        # build index map
         self.index_map = []
-        self.file_shapes = []
-        for in_f, tar_f in zip(self.input_files, self.target_files):
-            inp = np.load(os.path.join(input_dir, in_f), mmap_mode='r')
-            self.file_shapes.append(len(inp))
-            for i in range(len(inp)):
-                self.index_map.append((in_f, tar_f, i))
+
+        with h5py.File(self.input_h5, 'r') as f_in, \
+             h5py.File(self.target_h5, 'r') as f_tar:
+            in_keys = sorted(f_in.keys())
+            tar_keys = sorted(f_tar.keys())
+
+            for in_k, tar_k in zip(in_keys, tar_keys):
+                in_len = f_in[in_k].shape[0]
+                tar_len = f_tar[tar_k].shape[0]
+
+                if in_len != tar_len:
+                    raise ValueError(f"Length mismatch at {in_k} ({in_len}) and {tar_k} ({tar_len})")
+
+                for i in range(in_len):
+                    self.index_map.append((in_k, tar_k, i))
+        
+        # We'll open the files lazily in __getitem__
+        self.in_fh = None
+        self.tar_fh = None
 
     def __len__(self):
         return len(self.index_map)
 
     def __getitem__(self, idx):
-        in_f, tar_f, img_idx = self.index_map[idx]
-        x = np.load(os.path.join(self.input_dir, in_f), mmap_mode='r')[img_idx]
-        y = np.load(os.path.join(self.target_dir, tar_f), mmap_mode='r')[img_idx]
+        # This part ensures each Worker Process gets its own file handle
+        if self.in_fh is None:
+            self.in_fh = h5py.File(self.input_h5, 'r')
+            self.tar_fh = h5py.File(self.target_h5, 'r')
+
+        in_key, tar_key, img_idx = self.index_map[idx]
+
+        x = self.in_fh[in_key][img_idx]
+        y = self.tar_fh[tar_key][img_idx]
 
         if x.ndim == 2:
             x = x[None, ...]
