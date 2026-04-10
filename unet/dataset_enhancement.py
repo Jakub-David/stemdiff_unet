@@ -3,6 +3,7 @@ from plot import show_1D_profiles, show_diffractograms
 import torch
 from pathlib import Path
 import h5py
+import cv2 as cv
 
 def predict(model, data):
     data = data.astype(np.float32)
@@ -12,7 +13,7 @@ def predict(model, data):
 
     return output.squeeze().numpy()
 
-def zero_spatial_edges(data, border_width=1):
+def zero_spatial_edges(data, border_width=3):
     """
     Zeros the edges of an array with shape (..., H, W).
     Works for (C, H, W) and (B, C, H, W).
@@ -30,32 +31,58 @@ def zero_spatial_edges(data, border_width=1):
     
     return res
 
-def process(name, model, thr, show_n=5, clip_max=1):
+def process(name, model, thr=None, area_size=None, area_thr=1, 
+            show_n=5, clip_max=1):
     # Load
-    data = np.load(f"dataset/x_input/input{name}.npy")
-    target = np.load(f"dataset/x_target/target{name}.npy")
+    with h5py.File("dataset/x_input.h5", 'r') as f_in, \
+             h5py.File("dataset/x_target.h5", 'r') as f_tar:
+        data = f_in[f"input{name}"][:]
+        target = f_tar[f"target{name}"][:]
 
     # Enhance with unet
     output = predict(model, data)
 
+    diff_dict = {
+                "Original": data, 
+                "Result": output
+    }
+
     # Enhance output
     noise_rem = output.copy()
-    noise_rem[noise_rem<thr]=0
-    noise_rem = zero_spatial_edges(noise_rem)
+    if thr != None:
+        noise_rem[noise_rem<thr]=0
+        noise_rem = zero_spatial_edges(noise_rem)
 
+        noise_rem = noise_rem.astype(np.uint16)
+        diff_dict["Noise removal"] = noise_rem
+
+    if area_size != None:
+        mask = (output > area_thr).astype(np.uint8)
+
+        refined_output = np.zeros(mask.shape, dtype=np.float32)
+
+        for k in range(len(data)):
+            nb_components, out, stats, centroids = \
+                cv.connectedComponentsWithStats(mask[k, :, :, None], connectivity=8)
+
+
+            for i in range(1, nb_components):
+                if stats[i, cv.CC_STAT_AREA] >= area_size:
+                    refined_output[k][out == i] = output[k][out == i]
+
+        refined_output = zero_spatial_edges(refined_output)
+        refined_output = refined_output.astype(np.uint16)
+        diff_dict["Area filter"] = refined_output
+
+    diff_dict["Target"] =  target
     for i in range(show_n):
-        show_diffractograms({
-                "Original": data[i], 
-                "Result": output[i],
-                "Noise removal": noise_rem[i],
-                "Target": target[i]
-            }, clip_max)
-        show_1D_profiles({
-                "Result": (output[i], "green"), 
-                "Noise removal": (noise_rem[i], "-.m")
-            })
+        diffs = {k: v[i] for k, v in diff_dict.items()}
+        show_diffractograms(diffs, clip_max)
 
-    return noise_rem.astype(np.uint16)
+    if area_size != None:
+        return refined_output
+    
+    return noise_rem
 
 def save_results(results, output_dir):
     output_dir = Path(output_dir)

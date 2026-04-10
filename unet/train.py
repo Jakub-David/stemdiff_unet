@@ -202,13 +202,13 @@ def train(config):
 
     return experiment_id
 
-def test(experiment_id, batch_size=32, epoch=20, show_plots=True, show_all=True,
-         show_idxs=None):
+def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True, 
+         show_all=True, show_idxs=None):
     # Reconstruct the path using the returned ID
     model_path = f"runs/{experiment_id}/residual_unet_epoch{epoch}.pt"
 
 
-    train_loader, val_loader, test_loader = init_data(batch_size)
+    train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
 
     # Model
     model, _ = ResidualUNet.load(model_path)
@@ -245,7 +245,7 @@ def test(experiment_id, batch_size=32, epoch=20, show_plots=True, show_all=True,
 
 if __name__ == "__main__":
     config = {
-        "dataset_dir": "dataset",
+        "dataset_dir": "dataset2",
         "lr": 1e-4,
         "num_epochs": 20,
         "log_interval": 200,
@@ -254,7 +254,7 @@ if __name__ == "__main__":
             "in_channels": 1,
             "base_channels": 8,
             "logspace": False,
-            "normalize": False,
+            "normalize": True,
             "predict_background": True
         }
     }
@@ -263,4 +263,4 @@ if __name__ == "__main__":
     exp_id = train(config)
     
     # Run testing
-    test(exp_id)
+    test(exp_id, config["dataset_dir"])

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def show_diffractograms(imgs, clip_max=None, clip_first=False):
 
-    fig, axs = plt.subplots(1,len(imgs), figsize=(16,9))
+    fig, axs = plt.subplots(1,len(imgs), figsize=(4 * len(imgs),9))
     first = True
     for ax, (name, img) in zip(axs, imgs.items()):
         if clip_max != None and (clip_first or not first):
