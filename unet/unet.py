@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
+import numpy as np
 
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, dropout=0.0):
@@ -126,11 +127,9 @@ class ResidualUNet(nn.Module):
         return clean, background
     
     def predict(self, x):
-        self.eval()
-        with torch.no_grad():
-            return self(x)
-        
-    def batch_predict(self, x, batch_size=100):
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x)
+
         if len(x.shape) < 2:
             raise ValueError(f"Invalid shape {x.shape}")
         elif len(x.shape) == 2:
@@ -138,14 +137,41 @@ class ResidualUNet(nn.Module):
         elif len(x.shape) == 3:
             x = x[:, None]
 
+        if x.dtype != torch.float32:
+            x = x.float()
+
+        device = self.final.weight.device
+        x = x.to(device)
+
+        self.eval()
+        with torch.no_grad():
+            clean, bgr = self(x)
+            return clean.squeeze().cpu().numpy(), bgr.squeeze().cpu().numpy()
+        
+    def batch_predict(self, x, batch_size=100):
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x)
+
+        if len(x.shape) < 2:
+            raise ValueError(f"Invalid shape {x.shape}")
+        elif len(x.shape) == 2:
+            x = x[None, None]
+        elif len(x.shape) == 3:
+            x = x[:, None]
+
+        if x.dtype != torch.float32:
+            x = x.float()
+
         dataset = TensorDataset(x)
         dataloader = DataLoader(dataset, batch_size=batch_size)
 
         device = self.final.weight.device
         outputs = []
+        self.eval()
         for batch in dataloader:
             batch = batch[0].to(device)
-            output, _ = self.predict(batch)
+            with torch.no_grad():
+                output, _ = self(batch)
             outputs.append(output)
 
         return torch.cat(outputs).cpu()

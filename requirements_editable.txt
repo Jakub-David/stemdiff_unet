@@ -1,0 +1,5 @@
+-e ./bground
+-e ./ediff
+-e ./idiff
+-e ./myimg
+-e ./stemdiff
