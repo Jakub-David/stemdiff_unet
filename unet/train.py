@@ -1,8 +1,7 @@
 from unet import ResidualUNet
-from data import STEMDataset
+from data import STEMDataset, AugmentedDataset
 from eval import evaluate
 from plot import show_diffractograms, show_1D_profiles
-from pavlina import PavlinaModel
 from torch.utils.data import random_split, DataLoader
 import torch
 import torch.nn as nn
@@ -90,10 +89,35 @@ def init_data(dataset_dir, batch_size, seed=seed):
 
     return train_loader, val_loader, test_loader
 
+def init_augmented(dataset_dir, batch_size, shuffle_val=False):
+    train_dataset = AugmentedDataset(os.path.join(dataset_dir, "train.h5"))
+    val_dataset = AugmentedDataset(os.path.join(dataset_dir, "val.h5"))
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=10,
+        pin_memory=True,
+        persistent_workers=True,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size * 4,
+        shuffle=shuffle_val,
+        num_workers=6,
+        pin_memory=True,
+        persistent_workers=True,
+    )
+
+    return train_loader, val_loader
+
 def train(config):
     # 1. Extract parameters from config
     dataset_dir = config['dataset_dir']
     lr = config['lr']
+    min_lr = config["min_lr"]
     num_epochs = config['num_epochs']
     log_interval = config.get('log_interval', 20)
     batch_size = config.get('batch_size', 32)
@@ -101,7 +125,8 @@ def train(config):
     # Model params
     model_params = config['model_params']
 
-    train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
+    # train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
+    train_loader, val_loader = init_augmented(dataset_dir, batch_size)
 
     # 2. Generate unique experiment name
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -117,6 +142,12 @@ def train(config):
     # Loss & optimizer
     criterion = nn.HuberLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=num_epochs, 
+        eta_min=min_lr
+    )
 
     # TensorBoard
     writer = SummaryWriter(f"runs/{experiment_id}")
@@ -150,7 +181,7 @@ def train(config):
             epoch_loss += loss.item()
 
             # Logging
-            if global_step % log_interval == 0:
+            if log_interval > 0 and global_step % log_interval == 0:
                 val_avg_loss, val_avg_psnr, examples = evaluate(
                     model, val_loader, device, criterion, return_examples=1
                 )
@@ -190,7 +221,17 @@ def train(config):
             log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
             writer.add_images("EndOfEpoch/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
 
+            if not inputs_targets_logged:
+                # We log a small subset (e.g., first 4) to save space
+                writer.add_images("Static/Input", x_batch[log_idx].detach().cpu(), global_step)
+                writer.add_images("Static/Target", y_batch[log_idx].detach().cpu(), global_step)
+                inputs_targets_logged = True
+
         tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {val_avg_loss:.6f}, Avg val psnr: {val_avg_psnr:.6f},")
+
+        scheduler.step()
+        current_lr = optimizer.param_groups[0]['lr']
+        writer.add_scalar("Hyperparameters/LearningRate", current_lr, epoch)
 
         # -------------------------------
         # 3. Checkpointing
@@ -208,7 +249,8 @@ def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True,
     model_path = f"runs/{experiment_id}/residual_unet_epoch{epoch}.pt"
 
 
-    train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
+    # train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
+    train_loader, val_loader = init_augmented(dataset_dir, batch_size, True)
 
     # Model
     model, _ = ResidualUNet.load(model_path)
@@ -224,8 +266,6 @@ def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True,
 
     x, clean, y = examples[0]
 
-    pav = PavlinaModel()
-    pavlina_clean = pav(x)[0]
     idxs = range(batch_size) if show_all else [0, 2, 6, 9, 14, 19, 20, 23, 26]
     if show_idxs != None:
         idxs = show_idxs
@@ -233,22 +273,22 @@ def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True,
         show_diffractograms({
             "Original": x[i, 0], 
             "Result": clean[i, 0], 
-            "Pavlina": pavlina_clean[i, :, :, 0]
+            "Target": y[i, 0]
         })
         show_1D_profiles({
             "Original": (x[i, 0].numpy(), "blue"), 
             "Target": (y[i, 0].numpy(), "--r"), 
             "Result": (clean[i, 0].numpy(), "green"), 
-            "Pavlina": (pavlina_clean[i], "-.m")
         })
 
 
 if __name__ == "__main__":
     config = {
-        "dataset_dir": "dataset2",
-        "lr": 1e-4,
-        "num_epochs": 20,
-        "log_interval": 200,
+        "dataset_dir": "dataset1.1",
+        "lr": 1e-3,
+        "min_lr": 1e-6,
+        "num_epochs": 40,
+        "log_interval": -1,
         "batch_size": 32,
         "model_params": {
             "in_channels": 1,
@@ -264,3 +304,8 @@ if __name__ == "__main__":
     
     # Run testing
     test(exp_id, config["dataset_dir"])
+
+    # test(
+    #     "20260415_195938_batch_size=32-dataset_dir=dataset1.1-log_interval=-1-lr=0.001-min_lr=1e-06-model_params={'in_channels': 1, 'base_channels': 8, 'logspace': False, 'normalize': True, 'predict_background': True}-num_epochs=40", 
+    #     config["dataset_dir"],
+    #     32, 34)

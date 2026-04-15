@@ -4,6 +4,7 @@ import torch
 from pathlib import Path
 import h5py
 import cv2 as cv
+from scipy.ndimage import white_tophat
 
 def predict(model, data):
     data = data.astype(np.float32)
@@ -31,21 +32,69 @@ def zero_spatial_edges(data, border_width=3):
     
     return res
 
-def process(name, model, thr=None, area_size=None, area_thr=1, 
-            show_n=5, clip_max=1):
+def get_disk_footprint(radius, dim3=True):
+    """
+    Creates a 3D disk footprint for a stack of images.
+    Returns a (1, height, width) bool array.
+    """
+    # Create a coordinate grid from -radius to +radius
+    # (2*radius + 1) dimensions total
+    y, x = np.ogrid[-radius : radius+1, -radius : radius+1]
+    
+    # Mathematical definition of a disk: x^2 + y^2 <= r^2
+    disk_2d = x**2 + y**2 <= radius**2
+    
+    if dim3:
+        # Reshape for 3D stack (1, height, width)
+        # Cast explicitly to bool for safety/efficiency
+        return disk_2d[np.newaxis, :, :].astype(bool)
+    else:
+        return disk_2d.astype(bool)
+
+def remove_small_components(x, area_size=3, area_thr=1, area_con=4):
+    mask = (x > area_thr).astype(np.uint8)
+
+    refined_output = np.zeros_like(x)
+
+    nb_components, out, stats, centroids = \
+        cv.connectedComponentsWithStats(
+            mask[:, :, None], 
+            connectivity=area_con
+        )
+
+
+    for i in range(1, nb_components):
+        if stats[i, cv.CC_STAT_AREA] >= area_size:
+            refined_output[out == i] = x[out == i]
+
+    return refined_output
+
+def process(name, model=None, thr=None, area_size=None, area_thr=1, area_con=8,
+            show_n=5, clip_max=1, tophat_ker=3, show_profiles=False, 
+            limit=None):
     # Load
-    with h5py.File("dataset/x_input.h5", 'r') as f_in, \
-             h5py.File("dataset/x_target.h5", 'r') as f_tar:
+    with h5py.File("dataset/x_input.h5", 'r') as f_in:
         data = f_in[f"input{name}"][:]
+    
+    # if model != None:
+    with h5py.File("dataset/x_target.h5", 'r') as f_tar:
         target = f_tar[f"target{name}"][:]
 
-    # Enhance with unet
-    output = predict(model, data)
+    if limit != None:
+        data = data[:limit]
+        target = target[:limit]
 
-    diff_dict = {
-                "Original": data, 
-                "Result": output
-    }
+    diff_dict = { "Original": data }
+
+    # Enhance with unet
+    if model != None:
+        output = predict(model, data)
+        diff_dict["Result"] = output
+    else:
+        footprint = get_disk_footprint(tophat_ker)
+        output = white_tophat(data, footprint=footprint)
+        diff_dict["Tophat"] = output
+
 
     # Enhance output
     noise_rem = output.copy()
@@ -57,27 +106,25 @@ def process(name, model, thr=None, area_size=None, area_thr=1,
         diff_dict["Noise removal"] = noise_rem
 
     if area_size != None:
-        mask = (output > area_thr).astype(np.uint8)
+        refined_output = np.zeros_like(output)
 
-        refined_output = np.zeros(mask.shape, dtype=np.float32)
+        for i in range(len(data)):
+            refined_output[i] = remove_small_components(
+                output[i], area_size, area_thr, area_con)
 
-        for k in range(len(data)):
-            nb_components, out, stats, centroids = \
-                cv.connectedComponentsWithStats(mask[k, :, :, None], connectivity=8)
-
-
-            for i in range(1, nb_components):
-                if stats[i, cv.CC_STAT_AREA] >= area_size:
-                    refined_output[k][out == i] = output[k][out == i]
 
         refined_output = zero_spatial_edges(refined_output)
         refined_output = refined_output.astype(np.uint16)
         diff_dict["Area filter"] = refined_output
 
+    # if model != None: 
     diff_dict["Target"] =  target
+
     for i in range(show_n):
         diffs = {k: v[i] for k, v in diff_dict.items()}
         show_diffractograms(diffs, clip_max)
+        if show_profiles:
+            show_1D_profiles(diffs)
 
     if area_size != None:
         return refined_output
@@ -96,8 +143,14 @@ def save_results(results, output_dir):
     if not new_input.exists():
         new_input.symlink_to(".." / orig_data)
 
-    with h5py.File(new_target, 'w') as hf:
-        for name, data in results.items():
+    save_h5(results, new_target)
+
+def save_h5(data, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(path, 'w') as hf:
+        for name, data in data.items():
 
             chunk_shape = (1, *data.shape[1:])
             
