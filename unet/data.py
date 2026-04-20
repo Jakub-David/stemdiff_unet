@@ -87,7 +87,7 @@ class AugmentedDataset(Dataset):
         in_key, img_idx = self.index_map[idx]
 
         x = self.in_fh[in_key][img_idx]
-        y = self.augment(x)
+        y = self.augment(x, in_key)
 
         if x.ndim == 2:
             x = x[None, ...]
@@ -99,19 +99,27 @@ class AugmentedDataset(Dataset):
 
         return x, y
     
-    def augment(self, x):
-        ker_size = np.random.randint(1, 8)
+    def augment(self, x, name):
+        ker_size = np.random.randint(1, 5)
         ker = get_disk_footprint(ker_size, dim3=False)
         y = white_tophat(x, footprint=ker)
 
         y = zero_spatial_edges(y)
 
         if np.random.rand() < 0.3:
-            thr = np.random.randint(1, 30)
+            if name == "laf3":
+                thr = np.random.randint(40, 80)
+            else:
+                thr = np.random.randint(5, 45)
             y[y < thr] = 0
         else:
-            area_size = np.random.randint(2, min(20, ker_size * 4))
-            area_thr = np.random.randint(5, 25)
+            area_size = np.random.randint(2, ker_size * 3)
+
+            if name == "laf3":
+                area_thr = np.random.randint(30, 70)
+            else:
+                area_thr = np.random.randint(5, 25)
+
             y = remove_small_components(y, area_size, area_thr, 4)
 
         return y

@@ -1,4 +1,4 @@
-from unet import ResidualUNet
+from model import ResidualUNet
 from data import STEMDataset, AugmentedDataset
 from eval import evaluate
 from plot import show_diffractograms, show_1D_profiles
@@ -292,7 +292,7 @@ if __name__ == "__main__":
         "batch_size": 32,
         "model_params": {
             "in_channels": 1,
-            "base_channels": 8,
+            "base_channels": 4,
             "logspace": False,
             "normalize": True,
             "predict_background": True

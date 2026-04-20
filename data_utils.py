@@ -31,6 +31,7 @@ def load_cached(path, name):
     return SDATA, DIFFIMAGES, df
 
 def plot_stats(SDATA, DIFFIMAGES, df, name):
+    df = df.reset_index(drop=True)
     sd.io.set_plot_parameters(size=(18,10), fontsize=11)
     plot = df.plot.line(y=['MaxInt'], color='green')
     plot.set_xlabel('Datafiles')

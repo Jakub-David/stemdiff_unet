@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
+from pathlib import Path
 
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, dropout=0.0):
@@ -194,7 +195,9 @@ class ResidualUNet(nn.Module):
         }, path)
 
     @staticmethod
-    def load(path):
+    def load(path, pattern=None):
+        if pattern != None:
+            path = next(Path(path).glob(pattern))
         c = torch.load(path)
 
         model = ResidualUNet(
