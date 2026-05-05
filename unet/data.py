@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from pathlib import Path
 import h5py
 from dataset_enhancement import *
+import pandas as pd
 
 
 class STEMDataset(Dataset):
@@ -123,3 +124,47 @@ class AugmentedDataset(Dataset):
             y = remove_small_components(y, area_size, area_thr, 4)
 
         return y
+    
+
+class Profile1DDataset(Dataset):
+    def __init__(self, dataset_path, target_path):
+        self.input_h5 = dataset_path
+        laf3_df = pd.read_csv(target_path, sep=r'\s+')
+
+        self.laf3 = (
+            laf3_df.q.to_numpy(),
+            laf3_df.I.to_numpy()
+        )
+
+        self.index_map = []
+
+        with h5py.File(self.input_h5, 'r') as f_in:
+            in_keys = sorted(f_in.keys())
+
+            for in_k in in_keys:
+                in_len = f_in[in_k].shape[0]
+
+                for i in range(in_len):
+                    self.index_map.append((in_k, i))
+        
+        # We'll open the files lazily in __getitem__
+        self.in_fh = None
+
+    def __len__(self):
+        return len(self.index_map)
+
+    def __getitem__(self, idx):
+        # This part ensures each Worker Process gets its own file handle
+        if self.in_fh is None:
+            self.in_fh = h5py.File(self.input_h5, 'r')
+
+        in_key, img_idx = self.index_map[idx]
+
+        x = self.in_fh[in_key][img_idx]
+
+        if x.ndim == 2:
+            x = x[None, ...]
+
+        x = torch.from_numpy(x.astype(np.float32))
+
+        return x, self.laf3
