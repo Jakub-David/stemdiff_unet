@@ -1,7 +1,8 @@
 import torch
 import numpy as np
 
-def profile_1d_loss(input2d: torch.Tensor, target1d: tuple[np.ndarray, np.ndarray]) -> torch.Tensor:
+def profile_1d_loss(input2d: torch.Tensor, target: tuple[np.ndarray, np.ndarray]) -> torch.Tensor:
+    device = input2d.device
     summed_input2d = sum_aligned_images(input2d)
     radial_distance, intensity = calc_radial_distribution(summed_input2d.squeeze())
 
@@ -9,24 +10,23 @@ def profile_1d_loss(input2d: torch.Tensor, target1d: tuple[np.ndarray, np.ndarra
     intensity[:9] = 0
     intensity = intensity / intensity.max()
 
-    q, I = target1d
-    q, I = q[0], I[0]
+    q, I = target
+    q, I = q[0].to(device, non_blocking=True), I[0].to(device, non_blocking=True)
     max_target = q[I.argmax()]
     max_input = torch.argmax(intensity)
     # calibration_constant = max_xrd/max_eld
     calibration_constant = max_target/max_input
-    target1d_tensor = resize_target(q, I, calibration_constant)
+    target1d = resize_target(q, I, calibration_constant)
 
-    print(max_target)
-    print(max_input)
-    return torch.nn.functional.huber_loss(intensity, target1d_tensor)
+    target1d = torch.nn.functional.pad(target1d, (0, intensity.shape[0] - target1d.shape[0]))
+    return torch.nn.functional.huber_loss(intensity, target1d)
 
 
 
 def resize_target(q, I, calibration_constant) -> torch.Tensor:
     # 1. Define the number of bins (15 targets means 16 bin edges)
     num_bins = torch.ceil(q[-1] / calibration_constant).int()
-    bin_edges = torch.linspace(q.min(), q.max(), num_bins + 1)
+    bin_edges = torch.linspace(q.min(), q.max(), num_bins + 1, device=q.device)
 
     # 2. Assign each row's float position to a bin (0 to 14)
     bin_indices = torch.bucketize(q, bin_edges) - 1
@@ -38,7 +38,7 @@ def resize_target(q, I, calibration_constant) -> torch.Tensor:
     for i in range(num_bins):
         mask = bin_indices == i
         if torch.any(mask):
-            tensor_data[i] = torch.tensor(I[mask].max())
+            tensor_data[i] = torch.tensor(I[mask].max(), device=q.device)
 
     return tensor_data
 
