@@ -10,12 +10,13 @@ x, y = dataset[0]
 x = x[None]
 
 print(x.shape)
-
-model, config = ResidualUNet.load("runs/", "20260417_154943_*/*epoch40.pt")
+output_name = "model_profile.onnx"
+# model, config = ResidualUNet.load("runs/", "20260417_154943_*/*epoch40.pt")
+model, config = ResidualUNet.load("runs/", "20260506_135318*/*epoch40.pt")
 model = model.eval()
 
 with torch.no_grad():
-    torch_output, _ = model.predict(x)
+    torch_output = model.predict(x)
 
 
 dim = torch.export.Dim("dim")
@@ -23,11 +24,11 @@ sc = torch.export.ShapesCollection()
 sc[x] = (dim, 1, 256, 256)
 
 onnx_program = torch.onnx.export(model, x, dynamic_shapes=sc)
-onnx_program.save("model.onnx")
+onnx_program.save(output_name)
 
 
 # Create ONNX Runtime session
-ort_session = ort.InferenceSession("model.onnx")
+ort_session = ort.InferenceSession(output_name)
 # Prepare input: convert to numpy, ensure correct type
 ort_inputs = {"x": x.numpy().astype(np.float32)}
 ort_output = ort_session.run(None, ort_inputs)[0].squeeze()

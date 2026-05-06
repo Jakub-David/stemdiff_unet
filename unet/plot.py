@@ -1,5 +1,33 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import PIL.Image
+import io
+from loss import prepare_profiles
+
+
+def create_profile_img(x, y):
+    # 1. Create profiles
+    x, y = prepare_profiles(x, y)
+
+    # 2. Create the matplotlib figure
+    fig, ax = plt.subplots()
+    ax.plot(y, label="target")
+    ax.plot(x, label="result")
+    ax.set_title("1D profiles")
+
+    # 3. Render the plot to an image buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+
+    # Convert to a PIL Image or OpenCV array, and then to a NumPy array for logging
+    image = PIL.Image.open(buf)
+    image_array = np.array(image).transpose(
+        2, 0, 1
+    )  # Convert to [Channels, Height, Width]
+    buf.close()
+
+    return image_array
 
 def show_diffractograms(imgs, clip_max=None, clip_first=False):
 

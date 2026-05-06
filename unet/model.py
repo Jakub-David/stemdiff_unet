@@ -125,7 +125,7 @@ class ResidualUNet(nn.Module):
             background = None
             clean = output
 
-        return clean, background
+        return clean
     
     def predict(self, x):
         if isinstance(x, np.ndarray):
@@ -146,8 +146,8 @@ class ResidualUNet(nn.Module):
 
         self.eval()
         with torch.no_grad():
-            clean, bgr = self(x)
-            return clean.squeeze().cpu().numpy(), bgr.squeeze().cpu().numpy()
+            clean = self(x)
+            return clean.squeeze().cpu().numpy()
         
     def batch_predict(self, x, batch_size=100):
         if isinstance(x, np.ndarray):
@@ -172,7 +172,7 @@ class ResidualUNet(nn.Module):
         for batch in dataloader:
             batch = batch[0].to(device)
             with torch.no_grad():
-                output, _ = self(batch)
+                output = self(batch)
             outputs.append(output)
 
         return torch.cat(outputs).cpu()

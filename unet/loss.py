@@ -2,6 +2,10 @@ import torch
 import numpy as np
 
 def profile_1d_loss(input2d: torch.Tensor, target: tuple[np.ndarray, np.ndarray]) -> torch.Tensor:
+    intensity, target1d = prepare_profiles(input2d, target)
+    return torch.nn.functional.huber_loss(intensity, target1d)
+
+def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
     device = input2d.device
     summed_input2d = sum_aligned_images(input2d)
     radial_distance, intensity = calc_radial_distribution(summed_input2d.squeeze())
@@ -19,8 +23,7 @@ def profile_1d_loss(input2d: torch.Tensor, target: tuple[np.ndarray, np.ndarray]
     target1d = resize_target(q, I, calibration_constant)
 
     target1d = torch.nn.functional.pad(target1d, (0, intensity.shape[0] - target1d.shape[0]))
-    return torch.nn.functional.huber_loss(intensity, target1d)
-
+    return intensity, target1d
 
 
 def resize_target(q, I, calibration_constant) -> torch.Tensor:
