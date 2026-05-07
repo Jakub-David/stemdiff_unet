@@ -29,9 +29,11 @@ def create_profile_img(x, y):
 
     return image_array
 
-def show_diffractograms(imgs, clip_max=None, clip_first=False):
+def show_diffractograms(imgs, clip_max=None, clip_first=False, title=None):
 
-    fig, axs = plt.subplots(1,len(imgs), figsize=(4 * len(imgs),9))
+    fig, axs = plt.subplots(1,len(imgs), figsize=(4 * len(imgs),5))
+    if title != None:
+        fig.suptitle(title, fontsize=20)
     first = True
     for ax, (name, img) in zip(axs, imgs.items()):
         if clip_max != None and (clip_first or not first):
@@ -39,13 +41,12 @@ def show_diffractograms(imgs, clip_max=None, clip_first=False):
         else:
             img = np.clip(img, 0, None)
             img = np.log10(img + 1)
-        ax.set_title(name,fontsize=16)
+        ax.set_title(name, fontsize=16)
         ax.imshow(img)
         first = False
 
-    plt.axis("off")
-    
     plt.tight_layout()
+
     plt.show()
 
 def show_1D_profiles(imgs, logscale=False):

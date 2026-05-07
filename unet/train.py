@@ -106,7 +106,7 @@ def init_augmented(dataset_dir, batch_size, shuffle_val=False):
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size * 4,
+        batch_size=batch_size,
         shuffle=shuffle_val,
         num_workers=6,
         pin_memory=True,
@@ -118,11 +118,11 @@ def init_augmented(dataset_dir, batch_size, shuffle_val=False):
 def init_profile1d(dataset_dir, batch_size, shuffle_val=False):
     train_dataset = Profile1DDataset(
         os.path.join(dataset_dir, "train.h5"),
-        os.path.join(dataset_dir, "laf3"),
+        os.path.join(dataset_dir, "laf3v4"),
     )
     val_dataset = Profile1DDataset(
         os.path.join(dataset_dir, "val.h5"),
-        os.path.join(dataset_dir, "laf3"),
+        os.path.join(dataset_dir, "laf3v4"),
     )
 
     train_loader = DataLoader(
@@ -136,7 +136,7 @@ def init_profile1d(dataset_dir, batch_size, shuffle_val=False):
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size * 4,
+        batch_size=batch_size,
         shuffle=shuffle_val,
         num_workers=6,
         pin_memory=True,
@@ -228,7 +228,7 @@ def train(config: dict):
                 # )
 
                 val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                    model, val_loader, device, criterion, return_examples=1
+                    model, val_loader, device, criterion, return_examples=10
                 )
                 
                 writer.add_scalar("Loss/train", loss.item(), global_step)
@@ -248,7 +248,9 @@ def train(config: dict):
                         inputs_targets_logged = True
 
                     writer.add_images("Progress/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
-                    writer.add_image("Progress/Profile", create_profile_img(clean_batch.detach().cpu(), y_batch), global_step)
+                    for i in range(len(examples)):
+                        x_i, clean_i, y_i = examples[i]
+                        writer.add_image(f"Progress/Profile{i}", create_profile_img(clean_i.detach().cpu(), y_i), global_step)
                 
             global_step += 1
 
@@ -259,7 +261,7 @@ def train(config: dict):
         # )
 
         val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-            model, val_loader, device, criterion, return_examples=1
+            model, val_loader, device, criterion, return_examples=10
         )
         
         writer.add_scalar("Loss/train", loss.item(), global_step)
@@ -272,7 +274,9 @@ def train(config: dict):
             x_batch, clean_batch, y_batch = examples[0]
             log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
             writer.add_images("EndOfEpoch/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
-            writer.add_image("EndOfEpoch/Profile", create_profile_img(clean_batch.detach().cpu(), y_batch), global_step)
+            for i in range(len(examples)):
+                x_i, clean_i, y_i = examples[i]
+                writer.add_image(f"EndOfEpoch/Profile{i}", create_profile_img(clean_i.detach().cpu(), y_i), global_step)
 
             if not inputs_targets_logged:
                 # We log a small subset (e.g., first 4) to save space
@@ -340,7 +344,7 @@ if __name__ == "__main__":
     config = {
         "dataset_dir": "dataset_filtered",
         "dataset_type": "profile",
-        "lr": 1e-5,
+        "lr": 1e-4,
         "min_lr": 1e-8,
         "num_epochs": 60,
         "log_interval": -1,

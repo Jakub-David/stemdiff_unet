@@ -1,13 +1,15 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 def profile_1d_loss(input2d: torch.Tensor, target: tuple[np.ndarray, np.ndarray]) -> torch.Tensor:
     intensity, target1d = prepare_profiles(input2d, target)
-    return torch.nn.functional.huber_loss(intensity, target1d)
+    return torch.nn.functional.l1_loss(intensity, target1d)
 
 def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
     device = input2d.device
     summed_input2d = sum_aligned_images(input2d)
+    # summed_input2d = F.interpolate(summed_input2d.unsqueeze(0), (1024, 1024), mode="bicubic")
     radial_distance, intensity = calc_radial_distribution(summed_input2d.squeeze())
 
     # remove center and normalize
@@ -29,10 +31,10 @@ def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
 def resize_target(q, I, calibration_constant) -> torch.Tensor:
     # 1. Define the number of bins (15 targets means 16 bin edges)
     num_bins = torch.ceil(q[-1] / calibration_constant).int()
-    bin_edges = torch.linspace(q.min(), q.max(), num_bins + 1, device=q.device)
+    bin_edges = torch.linspace(0, q.max(), num_bins + 1, device=q.device)
 
     # 2. Assign each row's float position to a bin (0 to 14)
-    bin_indices = torch.bucketize(q, bin_edges) - 1
+    bin_indices = torch.bucketize(q, bin_edges)
     # Ensure indices stay within [0, 14]
     bin_indices = torch.clamp(bin_indices, 0, num_bins - 1)
 
