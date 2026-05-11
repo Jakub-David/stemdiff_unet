@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from pathlib import Path
 import h5py
 from dataset_enhancement import *
+from skimage.morphology import disk
 import pandas as pd
 
 
@@ -102,8 +103,8 @@ class AugmentedDataset(Dataset):
     
     def augment(self, x, name):
         ker_size = np.random.randint(1, 5)
-        ker = get_disk_footprint(ker_size, dim3=False)
-        y = white_tophat(x, footprint=ker)
+        ker = disk(ker_size)
+        y = cv.morphologyEx(x, cv.MORPH_TOPHAT, ker)
 
         y = zero_spatial_edges(y)
 
@@ -124,7 +125,51 @@ class AugmentedDataset(Dataset):
             y = remove_small_components(y, area_size, area_thr, 4)
 
         return y
+
+class ResizedAugmentedDataset(AugmentedDataset):
+    def __getitem__(self, idx):
+        # This part ensures each Worker Process gets its own file handle
+        if self.in_fh is None:
+            self.in_fh = h5py.File(self.input_h5, 'r')
+
+        in_key, img_idx = self.index_map[idx]
+
+        x = self.in_fh[in_key][img_idx]
+        x = torch.from_numpy(x.astype(np.float32))
+        # x = skimage.transform.resize(x, (1024, 1024), order=3, anti_aliasing=False)
+        x = torch.nn.functional.interpolate(x[None, None], (1024, 1024), mode="bicubic")
+        x = x.squeeze(0)
+        y = self.augment(x.squeeze().numpy(), in_key)
+
+        # if x.ndim == 2:
+        #     x = x[None, ...]
+        if y.ndim == 2:
+            y = y[None, ...]
+
+        y = torch.from_numpy(y.astype(np.float32))
+
+        return x, y
     
+    def augment(self, x, name):
+        sigma = np.random.rand() * 15 + 0.5
+        b = cv.GaussianBlur(x, (0, 0), sigma)
+        b = np.clip(b, 0, x)
+        y = x - b
+
+        y = zero_spatial_edges(y, 10)
+
+        if np.random.rand() < 0.25:
+            thr = np.random.randint(5, 25)
+            y[y < thr] = 0
+        else:
+            area_size = np.random.randint(2, int(sigma + 1) * 3)
+            area_size = min(area_size, 30)
+
+            area_thr = np.random.randint(5, 25)
+
+            y = remove_small_components(y, area_size, area_thr, 4)
+
+        return y
 
 class Profile1DDataset(Dataset):
     def __init__(self, dataset_path, target_path):
