@@ -145,7 +145,7 @@ def save_results(results, output_dir):
 
     save_h5(results, new_target)
 
-def save_h5(data, path):
+def save_h5(data, path, compression="gzip"):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -157,7 +157,7 @@ def save_h5(data, path):
             hf.create_dataset(
                 name, 
                 data=data,  
-                compression="gzip", 
+                compression=compression, 
                 chunks=chunk_shape,
                 shuffle=True 
             )

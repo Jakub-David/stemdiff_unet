@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Sampler, Dataset
+import random
 from pathlib import Path
 import h5py
 from dataset_enhancement import *
@@ -127,7 +128,7 @@ class AugmentedDataset(Dataset):
         return y
 
 class ResizedAugmentedDataset(AugmentedDataset):
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, scale_factor=4):
         # This part ensures each Worker Process gets its own file handle
         if self.in_fh is None:
             self.in_fh = h5py.File(self.input_h5, 'r')
@@ -135,14 +136,18 @@ class ResizedAugmentedDataset(AugmentedDataset):
         in_key, img_idx = self.index_map[idx]
 
         x = self.in_fh[in_key][img_idx]
-        x = torch.from_numpy(x.astype(np.float32))
-        # x = skimage.transform.resize(x, (1024, 1024), order=3, anti_aliasing=False)
-        x = torch.nn.functional.interpolate(x[None, None], (1024, 1024), mode="bicubic")
-        x = x.squeeze(0)
-        y = self.augment(x.squeeze().numpy(), in_key)
+        if scale_factor != 1:
+            x = torch.from_numpy(x.astype(np.float32))
+            # x = skimage.transform.resize(x, (1024, 1024), order=3, anti_aliasing=False)
+            x = torch.nn.functional.interpolate(x[None, None], scale_factor=scale_factor, mode="bicubic")
+            x = x.squeeze(0)
+            y = self.augment(x.squeeze().numpy(), in_key)
+        else:
+            y = self.augment(x, in_key)
 
-        # if x.ndim == 2:
-        #     x = x[None, ...]
+
+        if len(x.shape) == 2:
+            x = x[None, ...]
         if y.ndim == 2:
             y = y[None, ...]
 
@@ -172,28 +177,27 @@ class ResizedAugmentedDataset(AugmentedDataset):
         return y
 
 class Profile1DDataset(Dataset):
-    def __init__(self, dataset_path, target_path):
+    def __init__(self, dataset_path, target_dir):
         self.input_h5 = dataset_path
-        laf3_df = pd.read_csv(target_path, sep=r'\s+')
-
-        self.laf3 = (
-            laf3_df.q.to_numpy(),
-            laf3_df.I.to_numpy()
-        )
-
+        target_dir = Path(target_dir)
         self.index_map = []
 
-        with h5py.File(self.input_h5, 'r') as f_in:
-            in_keys = sorted(f_in.keys())
+        f_in = h5py.File(self.input_h5, 'r')
+        in_keys = sorted(list(f_in.keys()))
 
-            for in_k in in_keys:
-                in_len = f_in[in_k].shape[0]
+        for in_k in in_keys:
+            in_len = f_in[in_k].shape[0]
 
-                for i in range(in_len):
-                    self.index_map.append((in_k, i))
+            for i in range(in_len):
+                self.index_map.append((in_k, i))
         
         # We'll open the files lazily in __getitem__
         self.in_fh = None
+        
+        self.profiles = {}
+        for key in sorted(f_in.keys()):
+            df = pd.read_csv(target_dir / key , sep=r'\s+')
+            self.profiles[key] = (df.q.to_numpy(), df.I.to_numpy())
 
     def __len__(self):
         return len(self.index_map)
@@ -212,4 +216,49 @@ class Profile1DDataset(Dataset):
 
         x = torch.from_numpy(x.astype(np.float32))
 
-        return x, self.laf3
+        return x, self.profiles[in_key]
+    
+
+class SameKeyBatchSampler(Sampler):
+    def __init__(self, index_map, batch_size, drop_last=False, shuffle=False):
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.shuffle = shuffle
+        
+        # 1. Group indices by their in_key
+        self.groups = {}
+        for idx, (in_key, _) in enumerate(index_map):
+            if in_key not in self.groups:
+                self.groups[in_key] = []
+            self.groups[in_key].append(idx)
+
+    def __iter__(self):
+        # 2. Break each group into chunks (batches)
+        all_batches = []
+        for in_key in self.groups:
+            indices = self.groups[in_key][:] # Copy list
+            if self.shuffle:
+                random.shuffle(indices)
+            
+            # Group into batches
+            for i in range(0, len(indices), self.batch_size):
+                batch = indices[i:i + self.batch_size]
+                if len(batch) == self.batch_size or not self.drop_last:
+                    all_batches.append(batch)
+        
+        # 3. Shuffle the list of batches
+        # This ensures you don't train on Key 1 for 100 steps, then Key 2...
+        # Instead, batches from different keys are mixed together.
+        if self.shuffle:
+            random.shuffle(all_batches)
+        
+        yield from all_batches
+
+    def __len__(self):
+        count = 0
+        for indices in self.groups.values():
+            if self.drop_last:
+                count += len(indices) // self.batch_size
+            else:
+                count += (len(indices) + self.batch_size - 1) // self.batch_size
+        return count

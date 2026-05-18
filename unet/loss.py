@@ -1,10 +1,11 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+from ediff import ediff
 
 def profile_1d_loss(input2d: torch.Tensor, target: tuple[np.ndarray, np.ndarray]) -> torch.Tensor:
     intensity, target1d = prepare_profiles(input2d, target)
-    return torch.nn.functional.l1_loss(intensity, target1d)
+    return torch.nn.functional.huber_loss(intensity, target1d)
 
 def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
     device = input2d.device
@@ -63,25 +64,17 @@ def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
     
     b, _, h, w = images.shape
     
-    # Flatten spatial dimensions to find the flat index of the maximum value
-    flat_images = images.view(b, -1)
-    max_indices = torch.argmax(flat_images, dim=1)
-    
-    center_x = max_indices // w
-    center_y = max_indices % w
-    
     target_x = h // 2
     target_y = w // 2
     
-    # Calculate shifts
-    shift_x = target_x - center_x
-    shift_y = target_y - center_y
-    
     aligned_sum = torch.zeros((1, h, w), device=images.device)
     
+    center_locator = ediff.center.IntensityCenter()
     for i in range(b):
-        sx = shift_x[i].item()
-        sy = shift_y[i].item()
+        cy, cx = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy())
+        cx, cy = round(cx), round(cy)
+        sx = target_x - cx
+        sy = target_y - cy
         
         # Determine the slices for the input image and the target aligned tensor
         # src_x_start/end define the region of the image we read from

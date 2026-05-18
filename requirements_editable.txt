@@ -1,5 +1,5 @@
--e ./bground
--e ./ediff
--e ./idiff
--e ./myimg
--e ./stemdiff
+-e ./repos/bground
+-e ./repos/ediff
+-e ./repos/idiff
+-e ./repos/myimg
+-e ./repos/stemdiff

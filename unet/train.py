@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+import random
 import os
 import datetime
 import numpy as np
@@ -22,6 +23,7 @@ import json
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 seed = 42
 torch.manual_seed(seed)
+random.seed(seed)
 np.random.seed(seed)
 torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
@@ -109,29 +111,29 @@ def init_augmented(dataset_dir, batch_size, shuffle_val=False, resized=False):
 def init_profile1d(dataset_dir, batch_size, shuffle_val=False):
     train_dataset = Profile1DDataset(
         os.path.join(dataset_dir, "train.h5"),
-        os.path.join(dataset_dir, "laf3v4"),
+        os.path.join(dataset_dir),
     )
     val_dataset = Profile1DDataset(
         os.path.join(dataset_dir, "val.h5"),
-        os.path.join(dataset_dir, "laf3v4"),
+        os.path.join(dataset_dir),
     )
 
+    train_sampler = SameKeyBatchSampler(train_dataset.index_map, batch_size, shuffle=True)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
         num_workers=10,
         pin_memory=True,
         persistent_workers=True,
+        batch_sampler=train_sampler
     )
 
+    val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size, shuffle=shuffle_val)
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
-        shuffle=shuffle_val,
         num_workers=6,
         pin_memory=True,
         persistent_workers=True,
+        batch_sampler=val_sampler
     )
 
     return train_loader, val_loader
@@ -357,13 +359,13 @@ def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True,
 
 if __name__ == "__main__":
     config = {
-        "dataset_dir": "dataset1.1",
-        "dataset_type": "resized_augmented",
-        "lr": 1e-3,
-        "min_lr": 1e-6,
+        "dataset_dir": "dataset_filtered",
+        "dataset_type": "profile",
+        "lr": 1e-5,
+        "min_lr": 1e-8,
         "num_epochs": 40,
         "log_interval": -1,
-        "batch_size": 16,
+        "batch_size": 50,
         "model_params": {
             "in_channels": 1,
             "base_channels": 4,
@@ -371,12 +373,12 @@ if __name__ == "__main__":
             "normalize": True,
             "predict_background": True
         },
-        # "ckpt": "20260417_154943",
-        # "ckpt_epoch": 40
+        "ckpt": "20260417_154943",
+        "ckpt_epoch": 40
     }
 
     # Run training
-    exp_id = train(config, "resized_augmented_gaussian")
+    exp_id = train(config, "all_profiles")
     
     # Run testing
     # test(exp_id, config["dataset_dir"])
