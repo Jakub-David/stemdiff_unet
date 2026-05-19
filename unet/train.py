@@ -30,9 +30,12 @@ torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-def init_data(dataset_dir, batch_size, seed=seed):
+def init_old_data(dataset_dir, batch_size, seed=seed):
     # Dataset & DataLoader
-    dataset = STEMDataset(dataset_dir)
+    dataset = PreprocessedDataset(
+        os.path.join(dataset_dir, "x_input.h5"),
+        os.path.join(dataset_dir, "x_target.h5")
+    )
 
     # Define split fractions
     train_frac = 0.7
@@ -79,6 +82,36 @@ def init_data(dataset_dir, batch_size, seed=seed):
     )
 
     return train_loader, val_loader, test_loader
+
+def init_preprocessed(dataset_dir, batch_size):
+    train_dataset = PreprocessedDataset(
+        os.path.join(dataset_dir, "train.h5"),
+        os.path.join(dataset_dir, "train_target.h5"),
+    )
+    val_dataset = PreprocessedDataset(
+        os.path.join(dataset_dir, "val.h5"),
+        os.path.join(dataset_dir, "val_target.h5"),
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True,
+    )
+
+    return train_loader, val_loader
+
 
 def init_augmented(dataset_dir, batch_size, shuffle_val=False, resized=False):
     if resized:
@@ -138,6 +171,26 @@ def init_profile1d(dataset_dir, batch_size, shuffle_val=False):
 
     return train_loader, val_loader
 
+def log_images(writer, dataset_type, global_step, examples, log_static, epoch_str):
+    # log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
+    log_idx = [0, 2, 6, 9, 14]
+    for i in log_idx:
+        x, clean, y = examples[i]
+        # log first two images in a batch
+        writer.add_images(f"{epoch_str}/Prediction{i}", clean[[0, 1]].detach().cpu(), global_step)
+
+        if log_static:
+            writer.add_images("Static/Input", np.log10(x[[0, 1]].detach().cpu() + 1), global_step)
+            if dataset_type != "profile":
+                writer.add_images("Static/Target", y[[0, 1]].detach().cpu(), global_step)
+
+
+    if dataset_type == "profile":
+        for i in range(13):
+            x_i, clean_i, y_i = examples[i * 5]
+            writer.add_image(f"{epoch_str}/Profile{i}", create_profile_img(clean_i.detach().cpu(), y_i), global_step)
+
+
 def train(config: dict, experiment_name=None):
     # 1. Extract parameters from config
     dataset_dir = config['dataset_dir']
@@ -151,8 +204,10 @@ def train(config: dict, experiment_name=None):
     # Model params
     model_params = config['model_params']
 
-    if dataset_type == "default":
-        train_loader, val_loader, test_loader = init_data(dataset_dir, batch_size)
+    if dataset_type == "old":
+        train_loader, val_loader, test_loader = init_old_data(dataset_dir, batch_size)
+    elif dataset_type == "preprocessed":
+        train_loader, val_loader = init_preprocessed(dataset_dir, batch_size)
     elif dataset_type == "augmented":
         train_loader, val_loader = init_augmented(dataset_dir, batch_size)
     elif dataset_type == "resized_augmented":
@@ -228,11 +283,11 @@ def train(config: dict, experiment_name=None):
             if log_interval > 0 and global_step % log_interval == 0:
                 if dataset_type == "profile":
                     val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                        model, val_loader, device, criterion, return_examples=10
+                        model, val_loader, device, criterion, return_examples=100
                     )
                 else:
                     val_avg_loss, val_avg_psnr, examples = evaluate(
-                        model, val_loader, device, criterion, return_examples=1
+                        model, val_loader, device, criterion, return_examples=15
                     )
 
                 
@@ -245,22 +300,8 @@ def train(config: dict, experiment_name=None):
 
                 # Log Images to TensorBoard
                 if examples is not None and len(examples) > 0:
-                    x_batch, clean_batch, y_batch = examples[0]
-                    # log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
-                    log_idx = [0, 2, 6, 9, 14]
-                    
-                    if not inputs_targets_logged:
-                        # We log a small subset (e.g., first 4) to save space
-                        writer.add_images("Static/Input", np.log10(x_batch[log_idx].detach().cpu() + 1), global_step)
-                        if dataset_type != "profile":
-                            writer.add_images("Static/Target", y_batch[log_idx].detach().cpu(), global_step)
-                        inputs_targets_logged = True
-
-                    writer.add_images("Progress/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
-                    if dataset_type == "profile":
-                        for i in range(len(examples)):
-                            x_i, clean_i, y_i = examples[i]
-                            writer.add_image(f"Progress/Profile{i}", create_profile_img(clean_i.detach().cpu(), y_i), global_step)
+                    log_images(writer, dataset_type, global_step, examples, not inputs_targets_logged, "DuringEpoch")
+                    inputs_targets_logged = True
                 
             global_step += 1
 
@@ -268,11 +309,11 @@ def train(config: dict, experiment_name=None):
         avg_loss = epoch_loss / len(train_loader)
         if dataset_type == "profile":
             val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                model, val_loader, device, criterion, return_examples=10
+                model, val_loader, device, criterion, return_examples=100
             )
         else:
             val_avg_loss, val_avg_psnr, examples = evaluate(
-                model, val_loader, device, criterion, return_examples=1
+                model, val_loader, device, criterion, return_examples=15
             )
         
         writer.add_scalar("Loss/train", loss.item(), global_step)
@@ -284,20 +325,8 @@ def train(config: dict, experiment_name=None):
 
         # Log Images to TensorBoard
         if examples is not None and len(examples) > 0:
-            x_batch, clean_batch, y_batch = examples[0]
-            # log_idx = [0, 2, 6, 9, 14, 19, 20, 23, 26]
-            log_idx = [0, 2, 6, 9, 14]
-            writer.add_images("EndOfEpoch/Prediction", clean_batch[log_idx].detach().cpu(), global_step)
-            if dataset_type == "profile":
-                for i in range(len(examples)):
-                    x_i, clean_i, y_i = examples[i]
-                    writer.add_image(f"EndOfEpoch/Profile{i}", create_profile_img(clean_i.detach().cpu(), y_i), global_step)
-
-            if not inputs_targets_logged:
-                # We log a small subset (e.g., first 4) to save space
-                writer.add_images("Static/Input", np.log10(x_batch[log_idx].detach().cpu() + 1), global_step)
-                if dataset_type != "profile":
-                    writer.add_images("Static/Target", y_batch[log_idx].detach().cpu(), global_step)
+            log_images(writer, dataset_type, global_step, examples, not inputs_targets_logged, "EndOfEpoch")
+            inputs_targets_logged = True
                     
         if dataset_type == "profile":
             tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {val_avg_loss:.6f}, Avg val mea: {val_avg_mae:.6f},")
@@ -359,26 +388,25 @@ def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True,
 
 if __name__ == "__main__":
     config = {
-        "dataset_dir": "dataset_filtered",
-        "dataset_type": "profile",
-        "lr": 1e-5,
-        "min_lr": 1e-8,
+        "dataset_dir": "dataset1.1",
+        "dataset_type": "preprocessed",
+        "lr": 1e-3,
+        "min_lr": 1e-6,
         "num_epochs": 40,
         "log_interval": -1,
-        "batch_size": 50,
+        "batch_size": 24,
         "model_params": {
             "in_channels": 1,
             "base_channels": 4,
-            "logspace": False,
             "normalize": True,
             "predict_background": True
         },
-        "ckpt": "20260417_154943",
-        "ckpt_epoch": 40
+        # "ckpt": "20260417_154943",
+        # "ckpt_epoch": 40
     }
 
     # Run training
-    exp_id = train(config, "all_profiles")
+    exp_id = train(config, "preprocessed_gaussian_4x")
     
     # Run testing
     # test(exp_id, config["dataset_dir"])

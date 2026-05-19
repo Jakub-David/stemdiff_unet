@@ -46,12 +46,12 @@ def plot_stats(SDATA, DIFFIMAGES, df, name):
     plot.set_title(name)
     plot.grid()
 
-    sd.io.set_plot_parameters(size=(18,10), fontsize=11)
-    plot = df.plot.scatter(x='Peaks', y='S', color='red', marker='x')
-    plot.set_xlabel('Number of peaks')
-    plot.set_ylabel('Shannon entropy')
-    plot.set_title(name)
-    plot.grid()
+    # sd.io.set_plot_parameters(size=(18,10), fontsize=11)
+    # plot = df.plot.scatter(x='Peaks', y='S', color='red', marker='x')
+    # plot.set_xlabel('Number of peaks')
+    # plot.set_ylabel('Shannon entropy')
+    # plot.set_title(name)
+    # plot.grid()
 
     sd.io.set_plot_parameters(size=(24,8))
     fig,ax = plt.subplots(nrows=1, ncols=3)
@@ -68,10 +68,10 @@ def plot_stats(SDATA, DIFFIMAGES, df, name):
     for i in range(3): ax[i].grid()
     fig.tight_layout()
 
-    peaks = df.Peaks.unique()
-    peaks.sort()
-    peaks = peaks[[0, len(peaks) // 2, -1]]
-    sd.io.set_plot_parameters(size=(24,7))
-    sd.io.Plots.plot_datafiles_with_NS(
-        SDATA, df, N=peaks, S=[1] * 3,
-        icut=200, rsize=120)
+    # peaks = df.Peaks.unique()
+    # peaks.sort()
+    # peaks = peaks[[0, len(peaks) // 2, -1]]
+    # sd.io.set_plot_parameters(size=(24,7))
+    # sd.io.Plots.plot_datafiles_with_NS(
+    #     SDATA, df, N=peaks, S=[1] * 3,
+    #     icut=200, rsize=120)

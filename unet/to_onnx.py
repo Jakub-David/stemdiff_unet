@@ -10,18 +10,20 @@ x, y = dataset[0]
 x = x[None]
 
 print(x.shape)
-output_name = "model_profile.onnx"
+output_name = "model_resized.onnx"
 # model, config = ResidualUNet.load("runs/", "20260417_154943_*/*epoch40.pt")
-model, config = ResidualUNet.load("runs/", "20260506_135318*/*epoch40.pt")
+# model, config = ResidualUNet.load("runs/", "20260506_135318*/*epoch40.pt")
+model, config = ResidualUNet.load("runs/20260511_174507_resized_augmented_gaussian/residual_unet_epoch23.pt")
 model = model.eval()
 
 with torch.no_grad():
     torch_output = model.predict(x)
 
 
-dim = torch.export.Dim("dim")
+batch_dim = torch.export.Dim("dim")
+side_dim = torch.export.Dim("side", min=256, max=4096)
 sc = torch.export.ShapesCollection()
-sc[x] = (dim, 1, 256, 256)
+sc[x] = (batch_dim, 1, side_dim, side_dim)
 
 onnx_program = torch.onnx.export(model, x, dynamic_shapes=sc)
 onnx_program.save(output_name)

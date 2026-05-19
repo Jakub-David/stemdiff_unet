@@ -23,12 +23,11 @@ class DoubleConv(nn.Module):
 
 class ResidualUNet(nn.Module):
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
-                 logspace=False, normalize=True, predict_background=True):
+                 normalize=True, predict_background=True):
         super().__init__()
         self.in_channels = in_channels
         self.base_channels = base_channels
         self.dropout = dropout
-        self.logspace = logspace
         self.normalize = normalize
         self.predict_background = predict_background
 
@@ -66,9 +65,6 @@ class ResidualUNet(nn.Module):
 
     def forward(self, x):
         input_img = x
-
-        if self.logspace:
-            x = torch.log1p(x)
             
         if self.normalize:
             # Compute per-image mean/std (over C, H, W)
@@ -109,9 +105,6 @@ class ResidualUNet(nn.Module):
         if self.normalize:
             # Undo normalization
             output = output * std + mean
-
-        if self.logspace:
-            output = torch.expm1(output)
 
         if self.predict_background:
             # Residual output
@@ -185,7 +178,6 @@ class ResidualUNet(nn.Module):
             "in_channels": self.in_channels,
             "base_channels": self.base_channels,
             "dropout": self.dropout,
-            "logspace": self.logspace,
             "normalize": self.normalize,
             "predict_background": self.predict_background,
             # Training state
@@ -204,7 +196,6 @@ class ResidualUNet(nn.Module):
             in_channels=c["in_channels"],
             base_channels=c["base_channels"],
             dropout=c["dropout"],
-            logspace=c["logspace"],
             normalize=c["normalize"],
             predict_background=c["predict_background"],
         )
