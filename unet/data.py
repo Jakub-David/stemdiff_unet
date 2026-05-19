@@ -7,6 +7,7 @@ import h5py
 from dataset_enhancement import *
 from skimage.morphology import disk
 import pandas as pd
+import json
 
 
 class STEMDataset(Dataset):
@@ -194,10 +195,14 @@ class Profile1DDataset(Dataset):
         # We'll open the files lazily in __getitem__
         self.in_fh = None
         
+        with open(target_dir / "center_sizes.json", "r") as f:
+            center_sizes = json.load(f)
+
         self.profiles = {}
         for key in sorted(f_in.keys()):
             df = pd.read_csv(target_dir / key , sep=r'\s+')
-            self.profiles[key] = (df.q.to_numpy(), df.I.to_numpy())
+            self.profiles[key] = (df.q.to_numpy(), df.I.to_numpy(), center_sizes[key])
+
 
     def __len__(self):
         return len(self.index_map)

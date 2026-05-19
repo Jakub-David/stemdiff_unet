@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from ediff import ediff
 
-def profile_1d_loss(input2d: torch.Tensor, target: tuple[np.ndarray, np.ndarray]) -> torch.Tensor:
+def profile_1d_loss(input2d: torch.Tensor, target) -> torch.Tensor:
     intensity, target1d = prepare_profiles(input2d, target)
     return torch.nn.functional.huber_loss(intensity, target1d)
 
@@ -13,11 +13,13 @@ def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
     # summed_input2d = F.interpolate(summed_input2d.unsqueeze(0), (1024, 1024), mode="bicubic")
     radial_distance, intensity = calc_radial_distribution(summed_input2d.squeeze())
 
+    q, I, center_size = target
+    center_size = center_size[0]
+
     # remove center and normalize
-    intensity[:9] = 0
+    intensity[:center_size] = 0
     intensity = intensity / intensity.max()
 
-    q, I = target
     q, I = q[0].to(device, non_blocking=True), I[0].to(device, non_blocking=True)
     max_target = q[I.argmax()]
     max_input = torch.argmax(intensity)
@@ -71,7 +73,7 @@ def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
     
     center_locator = ediff.center.IntensityCenter()
     for i in range(b):
-        cy, cx = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy())
+        cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy())
         cx, cy = round(cx), round(cy)
         sx = target_x - cx
         sy = target_y - cy
@@ -123,7 +125,11 @@ def calc_radial_distribution(tensor: torch.Tensor, center: tuple = None, max_rad
     
     # Use the specified center, or default to the center of the image
     if center is None:
-        xc, yc = width / 2.0, height / 2.0
+        # xc, yc = width / 2.0, height / 2.0
+        center_locator = ediff.center.IntensityCenter()
+        xc, yc = center_locator.center_of_intensity(tensor.detach().cpu().numpy())
+        xc, yc = round(xc), round(yc)
+
     else:
         xc, yc = center
         
