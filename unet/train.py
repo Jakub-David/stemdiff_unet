@@ -83,21 +83,23 @@ def init_old_data(dataset_dir, batch_size, seed=seed):
 
     return train_loader, val_loader, test_loader
 
-def init_preprocessed(dataset_dir, batch_size):
+def init_preprocessed(dataset_dir, batch_size, scale_factor=None):
     train_dataset = PreprocessedDataset(
         os.path.join(dataset_dir, "train.h5"),
         os.path.join(dataset_dir, "train_target.h5"),
+        scale_factor
     )
     val_dataset = PreprocessedDataset(
         os.path.join(dataset_dir, "val.h5"),
         os.path.join(dataset_dir, "val_target.h5"),
+        scale_factor
     )
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=6,
         pin_memory=True,
     )
 
@@ -141,20 +143,22 @@ def init_augmented(dataset_dir, batch_size, shuffle_val=False, resized=False):
 
     return train_loader, val_loader
 
-def init_profile1d(dataset_dir, batch_size, shuffle_val=False):
+def init_profile1d(dataset_dir, batch_size, scale_factor, shuffle_val=False):
     train_dataset = Profile1DDataset(
         os.path.join(dataset_dir, "train.h5"),
         os.path.join(dataset_dir),
+        scale_factor
     )
     val_dataset = Profile1DDataset(
         os.path.join(dataset_dir, "val.h5"),
         os.path.join(dataset_dir),
+        scale_factor
     )
 
     train_sampler = SameKeyBatchSampler(train_dataset.index_map, batch_size, shuffle=True)
     train_loader = DataLoader(
         train_dataset,
-        num_workers=10,
+        num_workers=4,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=train_sampler
@@ -163,7 +167,7 @@ def init_profile1d(dataset_dir, batch_size, shuffle_val=False):
     val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size, shuffle=shuffle_val)
     val_loader = DataLoader(
         val_dataset,
-        num_workers=6,
+        num_workers=2,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=val_sampler
@@ -180,9 +184,9 @@ def log_images(writer, dataset_type, global_step, examples, log_static, epoch_st
         writer.add_images(f"{epoch_str}/Prediction{i}", clean[[0, 1]].detach().cpu(), global_step)
 
         if log_static:
-            writer.add_images("Static/Input", np.log10(x[[0, 1]].detach().cpu() + 1), global_step)
+            writer.add_images(f"Static/Input{i}", np.log10(x[[0, 1]].detach().cpu() + 1), global_step)
             if dataset_type != "profile":
-                writer.add_images("Static/Target", y[[0, 1]].detach().cpu(), global_step)
+                writer.add_images(f"Static/Target{i}", y[[0, 1]].detach().cpu(), global_step)
 
 
     if dataset_type == "profile":
@@ -195,6 +199,7 @@ def train(config: dict, experiment_name=None):
     # 1. Extract parameters from config
     dataset_dir = config['dataset_dir']
     dataset_type = config['dataset_type']
+    scale_factor = config['scale_factor']
     lr = config['lr']
     min_lr = config["min_lr"]
     num_epochs = config['num_epochs']
@@ -207,13 +212,13 @@ def train(config: dict, experiment_name=None):
     if dataset_type == "old":
         train_loader, val_loader, test_loader = init_old_data(dataset_dir, batch_size)
     elif dataset_type == "preprocessed":
-        train_loader, val_loader = init_preprocessed(dataset_dir, batch_size)
+        train_loader, val_loader = init_preprocessed(dataset_dir, batch_size, scale_factor)
     elif dataset_type == "augmented":
         train_loader, val_loader = init_augmented(dataset_dir, batch_size)
     elif dataset_type == "resized_augmented":
         train_loader, val_loader = init_augmented(dataset_dir, batch_size, resized=True)
     elif dataset_type == "profile":
-        train_loader, val_loader = init_profile1d(dataset_dir, batch_size)
+        train_loader, val_loader = init_profile1d(dataset_dir, batch_size, scale_factor)
 
     # 2. Generate unique experiment name
     experiment_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -316,7 +321,7 @@ def train(config: dict, experiment_name=None):
                 model, val_loader, device, criterion, return_examples=15
             )
         
-        writer.add_scalar("Loss/train", loss.item(), global_step)
+        writer.add_scalar("AvgLoss/train", avg_loss, global_step)
         writer.add_scalar("AvgLoss/val", val_avg_loss, global_step)
         if dataset_type == "profile":
             writer.add_scalar("AvgMAE/val", val_avg_mae, global_step)
@@ -387,14 +392,37 @@ def test(experiment_id, dataset_dir, batch_size=32, epoch=20, show_plots=True,
 
 
 if __name__ == "__main__":
+    # config = {
+    #     "dataset_dir": "dataset1.1",
+    #     # Possible dataset_type values: "preprocessed", "profile"
+    #     "dataset_type": "preprocessed",
+    #     "scale_factor": 2,
+    #     "lr": 1e-3,
+    #     "min_lr": 1e-6,
+    #     "num_epochs": 40,
+    #     "log_interval": -1,
+    #     "batch_size": 32,
+    #     "model_params": {
+    #         "in_channels": 1,
+    #         "base_channels": 4,
+    #         "normalize": True,
+    #         "predict_background": True
+    #     },
+    #     # "ckpt": "20260417_154943",
+    #     # "ckpt": "20260519_193326_preprocessed_gaussian_4x",
+    #     # "ckpt_epoch": 40
+    # }
+
     config = {
-        "dataset_dir": "dataset1.1",
-        "dataset_type": "preprocessed",
-        "lr": 1e-3,
-        "min_lr": 1e-6,
-        "num_epochs": 40,
+        "dataset_dir": "dataset_filtered",
+        # Possible dataset_type values: "preprocessed", "profile"
+        "dataset_type": "profile",
+        "scale_factor": 2,
+        "lr": 2e-6,
+        "min_lr": 5e-9,
+        "num_epochs": 20,
         "log_interval": -1,
-        "batch_size": 24,
+        "batch_size": 50,
         "model_params": {
             "in_channels": 1,
             "base_channels": 4,
@@ -402,11 +430,13 @@ if __name__ == "__main__":
             "predict_background": True
         },
         # "ckpt": "20260417_154943",
-        # "ckpt_epoch": 40
+        "ckpt": "20260520_163333_preprocessed_gaussian_2x",
+        "ckpt_epoch": 40
     }
 
     # Run training
-    exp_id = train(config, "preprocessed_gaussian_4x")
+    # exp_id = train(config, "preprocessed_gaussian_2x")
+    exp_id = train(config, "profile_2x_gaussian")
     
     # Run testing
     # test(exp_id, config["dataset_dir"])

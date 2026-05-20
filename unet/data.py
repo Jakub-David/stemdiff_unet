@@ -6,15 +6,27 @@ from pathlib import Path
 import h5py
 from dataset_enhancement import *
 from skimage.morphology import disk
-from skimage.transform import resize
 import pandas as pd
 import json
 
+def rescale(img, scale_factor=0, dsize=None):
+    resized = cv.resize(
+        img.astype(np.float32),
+        dsize, 
+        fx=scale_factor, 
+        fy=scale_factor, 
+        interpolation=cv.INTER_CUBIC
+    )
+    resized_max = resized.max()
+    if resized_max > 0.01:
+        resized = resized / resized_max * img.max()
+    return np.clip(resized, 0, None)
 
 class PreprocessedDataset(Dataset):
-    def __init__(self, input_path, target_path):
+    def __init__(self, input_path, target_path, scale_factor=None):
         self.input_h5 = input_path
         self.target_h5 = target_path
+        self.scale_factor = scale_factor
 
         self.index_map = []
 
@@ -51,8 +63,14 @@ class PreprocessedDataset(Dataset):
         x = self.in_fh[in_key][img_idx]
         y = self.tar_fh[tar_key][img_idx]
 
-        if x.shape != y.shape:
-            x = resize(x, y.shape, order=3, preserve_range=True)
+        if self.scale_factor == None:
+            if x.shape != y.shape:
+                x = rescale(x, dsize=y.shape)
+        else:
+            if self.scale_factor != 1:
+                x = rescale(x, self.scale_factor)
+            if x.shape != y.shape:
+                y = rescale(y, dsize=x.shape)
 
         if x.ndim == 2:
             x = x[None, ...]
@@ -181,9 +199,10 @@ class ResizedAugmentedDataset(AugmentedDataset):
         return y
 
 class Profile1DDataset(Dataset):
-    def __init__(self, dataset_path, target_dir):
+    def __init__(self, dataset_path, target_dir, scale_factor=1):
         self.input_h5 = dataset_path
         target_dir = Path(target_dir)
+        self.scale_factor = scale_factor
         self.index_map = []
 
         f_in = h5py.File(self.input_h5, 'r')
@@ -204,7 +223,7 @@ class Profile1DDataset(Dataset):
         self.profiles = {}
         for key in sorted(f_in.keys()):
             df = pd.read_csv(target_dir / key , sep=r'\s+')
-            self.profiles[key] = (df.q.to_numpy(), df.I.to_numpy(), center_sizes[key])
+            self.profiles[key] = (df.q.to_numpy(), df.I.to_numpy(), center_sizes[key] * scale_factor)
 
 
     def __len__(self):
@@ -218,6 +237,9 @@ class Profile1DDataset(Dataset):
         in_key, img_idx = self.index_map[idx]
 
         x = self.in_fh[in_key][img_idx]
+
+        if self.scale_factor != 1:
+            x = rescale(x, self.scale_factor)
 
         if x.ndim == 2:
             x = x[None, ...]

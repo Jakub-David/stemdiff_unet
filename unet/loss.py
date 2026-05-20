@@ -18,11 +18,11 @@ def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
 
     # remove center and normalize
     intensity[:center_size] = 0
-    intensity = intensity / intensity.max()
+    intensity = intensity / intensity[:intensity.shape[0] // 2].max()
 
     q, I = q[0].to(device, non_blocking=True), I[0].to(device, non_blocking=True)
     max_target = q[I.argmax()]
-    max_input = torch.argmax(intensity)
+    max_input = torch.argmax(intensity[:intensity.shape[0] // 2])
     # calibration_constant = max_xrd/max_eld
     calibration_constant = max_target/max_input
     target1d = resize_target(q, I, calibration_constant)
@@ -73,10 +73,15 @@ def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
     
     center_locator = ediff.center.IntensityCenter()
     for i in range(b):
-        cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy())
-        cx, cy = round(cx), round(cy)
-        sx = target_x - cx
-        sy = target_y - cy
+        csquare = max(20, h // 10)
+        cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy(), csquare, 0.1)
+        if np.isnan(cx) or np.isnan(cy):
+            print("Warning: loss -- sx or sy is nan")
+            sx, sy = 0, 0
+        else:
+            cx, cy = round(cx), round(cy)
+            sx = target_x - cx
+            sy = target_y - cy
         
         # Determine the slices for the input image and the target aligned tensor
         # src_x_start/end define the region of the image we read from
@@ -127,8 +132,13 @@ def calc_radial_distribution(tensor: torch.Tensor, center: tuple = None, max_rad
     if center is None:
         # xc, yc = width / 2.0, height / 2.0
         center_locator = ediff.center.IntensityCenter()
-        xc, yc = center_locator.center_of_intensity(tensor.detach().cpu().numpy())
-        xc, yc = round(xc), round(yc)
+        csquare = max(20, height // 10)
+        xc, yc = center_locator.center_of_intensity(tensor.detach().cpu().numpy(), csquare, 0.3)
+        if np.isnan(xc) or np.isnan(yc):
+            print("Warning: loss -- xc or yc is nan")
+            xc, yc = width / 2.0, height / 2.0
+        else:
+            xc, yc = round(xc), round(yc)
 
     else:
         xc, yc = center
