@@ -190,7 +190,7 @@ def log_images(writer, dataset_type, global_step, examples, log_static, epoch_st
 
 
     if dataset_type == "profile":
-        for i in range(13):
+        for i in range(len(examples) // 5):
             x_i, clean_i, y_i = examples[i * 5]
             writer.add_image(f"{epoch_str}/Profile{i}", create_profile_img(clean_i.detach().cpu(), y_i), global_step)
 
@@ -420,9 +420,9 @@ if __name__ == "__main__":
         "scale_factor": 2,
         "lr": 2e-6,
         "min_lr": 5e-9,
-        "num_epochs": 20,
+        "num_epochs": 40,
         "log_interval": -1,
-        "batch_size": 50,
+        "batch_size": 70,
         "model_params": {
             "in_channels": 1,
             "base_channels": 4,
@@ -436,7 +436,7 @@ if __name__ == "__main__":
 
     # Run training
     # exp_id = train(config, "preprocessed_gaussian_2x")
-    exp_id = train(config, "profile_2x_gaussian")
+    exp_id = train(config, "profile_2x_gaussian_v2")
     
     # Run testing
     # test(exp_id, config["dataset_dir"])

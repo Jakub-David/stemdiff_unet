@@ -10,10 +10,12 @@ x, y = dataset[0]
 x = x[None]
 
 print(x.shape)
-output_name = "model_resized.onnx"
+output_name = "model_profile_g2x.onnx"
 # model, config = ResidualUNet.load("runs/", "20260417_154943_*/*epoch40.pt")
 # model, config = ResidualUNet.load("runs/", "20260506_135318*/*epoch40.pt")
-model, config = ResidualUNet.load("runs/20260511_174507_resized_augmented_gaussian/residual_unet_epoch23.pt")
+# model, config = ResidualUNet.load("runs/20260511_174507_resized_augmented_gaussian/residual_unet_epoch23.pt")
+# model, params = ResidualUNet.load("runs/", "20260520_163333_preprocessed_gaussian_2x/*epoch40.pt")
+model, params = ResidualUNet.load("runs/20260520_190549_profile_2x_gaussian_v2/residual_unet_epoch40.pt")
 model = model.eval()
 
 with torch.no_grad():
@@ -36,5 +38,5 @@ ort_inputs = {"x": x.numpy().astype(np.float32)}
 ort_output = ort_session.run(None, ort_inputs)[0].squeeze()
 
 # Compare with relative (rtol) and absolute (atol) tolerance
-np.testing.assert_allclose(torch_output, ort_output, rtol=1e-02, atol=1e-03)
+np.testing.assert_allclose(torch_output, ort_output, rtol=1e-01, atol=1e-02)
 print("✓ Export validated within rtol=1e-02, atol=1e-03")

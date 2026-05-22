@@ -12,8 +12,11 @@ wheels/
 
 # Data
 DATA.STEMDIFF/
-unet/dataset/
+unet/dataset*/
 unet/runs/
+
+# Models
+unet/model*.onnx
 
 # Examples
 examples/BGROUND/FFUNC
@@ -21,3 +24,14 @@ examples/BGROUND/POINTS.IPLOT
 examples/BGROUND/POINTS.RESTORE
 examples/BGROUND/WVLET
 examples/BGROUND/00readme.txt
+
+# Old notebooks
+unet/old_nb/
+examples/STEMDIFF/
+old_nb/
+
+# Result images
+show_data/
+test_sum/
+
+unet/*results*.ipynb
