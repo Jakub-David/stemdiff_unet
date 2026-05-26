@@ -3,6 +3,12 @@ import torch.nn.functional as F
 import numpy as np
 from ediff import ediff
 
+def combined_loss(x: torch.Tensor, y) -> torch.Tensor:
+    device = x.device
+    y, p = y
+    y = y.to(device, non_blocking=True)
+    return torch.nn.functional.huber_loss(x, y) + profile_1d_loss(x, p)
+
 def profile_1d_loss(input2d: torch.Tensor, target) -> torch.Tensor:
     intensity, target1d = prepare_profiles(input2d, target)
     return torch.nn.functional.huber_loss(intensity, target1d)

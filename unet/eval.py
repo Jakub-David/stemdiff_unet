@@ -35,14 +35,23 @@ def evaluate(model, loader, device, criterion=None, return_examples=0):
     n_batches = 0
     examples = []
 
-    for x, y in loader:
+    for x, t in loader:
+        if isinstance(t, torch.Tensor):
+            y = t
+        else:
+            y, p = t
+
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
 
         clean_pred = model(x)
 
         if criterion is not None:
-            loss = criterion(clean_pred, y)
+            if isinstance(t, torch.Tensor):
+                # Use t on correct device
+                loss = criterion(clean_pred, y)
+            else:
+                loss = criterion(clean_pred, t)
             total_loss += loss.item()
 
         # Compute PSNR per batch
@@ -56,7 +65,7 @@ def evaluate(model, loader, device, criterion=None, return_examples=0):
             examples.append((
                 x.cpu(),
                 clean_pred.cpu(),
-                y.cpu()
+                t
             ))
 
     avg_loss = total_loss / n_batches if criterion is not None else None

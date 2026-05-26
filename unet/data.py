@@ -199,8 +199,9 @@ class ResizedAugmentedDataset(AugmentedDataset):
         return y
 
 class Profile1DDataset(Dataset):
-    def __init__(self, dataset_path, target_dir, scale_factor=1):
+    def __init__(self, dataset_path, target_dir, scale_factor=1, preprocessed_targets=None):
         self.input_h5 = dataset_path
+        self.target_h5 = preprocessed_targets
         target_dir = Path(target_dir)
         self.scale_factor = scale_factor
         self.index_map = []
@@ -208,13 +209,28 @@ class Profile1DDataset(Dataset):
         f_in = h5py.File(self.input_h5, 'r')
         in_keys = sorted(list(f_in.keys()))
 
-        for in_k in in_keys:
-            in_len = f_in[in_k].shape[0]
+        if self.target_h5 is None:
+            for in_k in in_keys:
+                in_len = f_in[in_k].shape[0]
 
-            for i in range(in_len):
-                self.index_map.append((in_k, i))
-        
-        # We'll open the files lazily in __getitem__
+                for i in range(in_len):
+                    self.index_map.append((in_k, i))
+        else:
+            f_tar = h5py.File(self.target_h5, 'r')
+            tar_keys = sorted(list(f_tar.keys()))
+
+            for in_k, tar_k in zip(in_keys, tar_keys):
+                in_len = f_in[in_k].shape[0]
+                tar_len = f_tar[tar_k].shape[0]
+
+                if in_len != tar_len:
+                    raise ValueError(f"Length mismatch at {in_k} ({in_len}) and {tar_k} ({tar_len})")
+
+                for i in range(in_len):
+                    self.index_map.append((in_k, tar_k, i))
+
+            # We'll open the files lazily in __getitem__
+            self.tar_fh = None
         self.in_fh = None
         
         with open(target_dir / "center_sizes.json", "r") as f:
@@ -233,20 +249,35 @@ class Profile1DDataset(Dataset):
         # This part ensures each Worker Process gets its own file handle
         if self.in_fh is None:
             self.in_fh = h5py.File(self.input_h5, 'r')
+        if self.target_h5 is not None and self.tar_fh is None:
+            self.tar_fh = h5py.File(self.target_h5, 'r')
 
-        in_key, img_idx = self.index_map[idx]
-
+        # Load data from file
+        if self.target_h5 is None:
+            in_key, img_idx = self.index_map[idx]
+        else:
+            in_key, tar_key, img_idx = self.index_map[idx]
+            y = self.tar_fh[tar_key][img_idx]
         x = self.in_fh[in_key][img_idx]
 
+        # Rescale, convert and return
         if self.scale_factor != 1:
             x = rescale(x, self.scale_factor)
 
         if x.ndim == 2:
             x = x[None, ...]
-
         x = torch.from_numpy(x.astype(np.float32))
 
-        return x, self.profiles[in_key]
+        if self.target_h5 is None:
+            return x, self.profiles[in_key]
+        else:
+            if x.shape != y.shape:
+                y = rescale(y, dsize=x.shape[1:])
+            if y.ndim == 2:
+                y = y[None, ...]
+            y = torch.from_numpy(y.astype(np.float32))
+
+            return x, (y, self.profiles[in_key])
     
 
 class SameKeyBatchSampler(Sampler):
@@ -257,7 +288,8 @@ class SameKeyBatchSampler(Sampler):
         
         # 1. Group indices by their in_key
         self.groups = {}
-        for idx, (in_key, _) in enumerate(index_map):
+        for idx, val in enumerate(index_map):
+            in_key = val[0]
             if in_key not in self.groups:
                 self.groups[in_key] = []
             self.groups[in_key].append(idx)
