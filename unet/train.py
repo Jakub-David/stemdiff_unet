@@ -295,7 +295,12 @@ def train(config: dict, experiment_name=None):
 
             clean_pred = model(x)
 
-            loss = criterion(clean_pred, y)
+            if dataset_type == "preprocessed+profile":
+                a = float(np.interp([epoch], [0, num_epochs], [1, 0])[0])
+                b = 1 - a
+                loss = criterion(clean_pred, y, a, b)
+            else:
+                loss = criterion(clean_pred, y)
 
             loss.backward()
             optimizer.step()
@@ -359,7 +364,7 @@ def train(config: dict, experiment_name=None):
         # Log Images to TensorBoard
         # -------------------------------
         if examples is not None and len(examples) > 0:
-            log_images(writer, dataset_type, global_step, examples, not inputs_targets_logged, "EndOfEpoch")
+            log_images(writer, dataset_type, epoch, examples, not inputs_targets_logged, "EndOfEpoch")
             inputs_targets_logged = True
         
         # Free memory
@@ -376,6 +381,11 @@ def train(config: dict, experiment_name=None):
         scheduler.step()
         current_lr = optimizer.param_groups[0]['lr']
         writer.add_scalar("Hyperparameters/LearningRate", current_lr, epoch)
+
+        # Log loss weights
+
+        if dataset_type == "preprocessed+profile":
+            writer.add_scalar("Hyperparameters/WeightA", a, epoch)
 
         # -------------------------------
         # Checkpointing
@@ -414,8 +424,8 @@ if __name__ == "__main__":
         # Possible dataset_type values: "preprocessed", "profile"
         "dataset_type": "preprocessed+profile",
         "scale_factor": 2,
-        "lr": 1e-5,
-        "min_lr": 5e-9,
+        "lr": 1e-3,
+        "min_lr": 5e-8,
         "num_epochs": 40,
         "log_interval": -1,
         "batch_size": 50,
@@ -426,11 +436,11 @@ if __name__ == "__main__":
             "predict_background": True
         },
         # "ckpt": "20260417_154943",
-        "ckpt": "20260520_163333_preprocessed_gaussian_2x",
-        "ckpt_epoch": 40
+        # "ckpt": "20260520_163333_preprocessed_gaussian_2x",
+        # "ckpt_epoch": 40
     }
 
     # Run training
     # exp_id = train(config, "preprocessed_gaussian_2x")
     # exp_id = train(config, "profile_2x_gaussian_v2")
-    exp_id = train(config, "preprocessed_g2x+profile_v2")
+    exp_id = train(config, "combined_g2x_precalc_cal_const")

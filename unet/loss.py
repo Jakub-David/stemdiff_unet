@@ -3,11 +3,11 @@ import torch.nn.functional as F
 import numpy as np
 from ediff import ediff
 
-def combined_loss(x: torch.Tensor, y) -> torch.Tensor:
+def combined_loss(x: torch.Tensor, y, a=1, b=1) -> torch.Tensor:
     device = x.device
     y, p = y
     y = y.to(device, non_blocking=True)
-    return torch.nn.functional.huber_loss(x, y) + profile_1d_loss(x, p)
+    return a * torch.nn.functional.huber_loss(x, y) + b * profile_1d_loss(x, p)
 
 def profile_1d_loss(input2d: torch.Tensor, target) -> torch.Tensor:
     intensity, target1d = prepare_profiles(input2d, target)
@@ -19,18 +19,18 @@ def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
     # summed_input2d = F.interpolate(summed_input2d.unsqueeze(0), (1024, 1024), mode="bicubic")
     radial_distance, intensity = calc_radial_distribution(summed_input2d.squeeze())
 
-    q, I, center_size = target
+    # Batch contains target for each input, however, all of them should be identical
+    q, I, center_size, calibration_constant = target
     center_size = center_size[0]
+    calibration_constant = calibration_constant[0]
+    q, I = q[0].to(device, non_blocking=True), I[0].to(device, non_blocking=True)
 
     # remove center and normalize
     intensity[:center_size] = 0
+    # Biggest peak should be in the first half
+    # (helps avoid high values around the edges)
     intensity = intensity / intensity[:intensity.shape[0] // 2].max()
 
-    q, I = q[0].to(device, non_blocking=True), I[0].to(device, non_blocking=True)
-    max_target = q[I.argmax()]
-    max_input = torch.argmax(intensity[:intensity.shape[0] // 2])
-    # calibration_constant = max_xrd/max_eld
-    calibration_constant = max_target/max_input
     target1d = resize_target(q, I, calibration_constant)
 
     target1d = torch.nn.functional.pad(target1d, (0, intensity.shape[0] - target1d.shape[0]))
@@ -39,12 +39,12 @@ def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
 
 def resize_target(q, I, calibration_constant) -> torch.Tensor:
     # 1. Define the number of bins (15 targets means 16 bin edges)
-    num_bins = torch.ceil(q[-1] / calibration_constant).int()
+    num_bins = torch.ceil(q[-1] * calibration_constant).int()
     bin_edges = torch.linspace(0, q.max(), num_bins + 1, device=q.device)
 
-    # 2. Assign each row's float position to a bin (0 to 14)
+    # 2. Assign each row's float position to a bin
     bin_indices = torch.bucketize(q, bin_edges)
-    # Ensure indices stay within [0, 14]
+    # Ensure indices stay within range
     bin_indices = torch.clamp(bin_indices, 0, num_bins - 1)
 
     # 3. Aggregate the values for each bin
@@ -80,7 +80,7 @@ def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
     center_locator = ediff.center.IntensityCenter()
     for i in range(b):
         csquare = max(20, h // 10)
-        cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy(), csquare, 0.1)
+        cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy(), csquare, 0.8)
         if np.isnan(cx) or np.isnan(cy):
             print("Warning: loss -- sx or sy is nan")
             sx, sy = 0, 0
@@ -139,7 +139,7 @@ def calc_radial_distribution(tensor: torch.Tensor, center: tuple = None, max_rad
         # xc, yc = width / 2.0, height / 2.0
         center_locator = ediff.center.IntensityCenter()
         csquare = max(20, height // 10)
-        xc, yc = center_locator.center_of_intensity(tensor.detach().cpu().numpy(), csquare, 0.3)
+        xc, yc = center_locator.center_of_intensity(tensor.detach().cpu().numpy(), csquare, 0.8)
         if np.isnan(xc) or np.isnan(yc):
             print("Warning: loss -- xc or yc is nan")
             xc, yc = width / 2.0, height / 2.0

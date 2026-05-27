@@ -233,13 +233,20 @@ class Profile1DDataset(Dataset):
             self.tar_fh = None
         self.in_fh = None
         
-        with open(target_dir / "center_sizes.json", "r") as f:
-            center_sizes = json.load(f)
+        with open(target_dir / "dataset_params.json", "r") as f:
+            dataset_params = json.load(f)
+            center_sizes = dataset_params["center_sizes"]
+            cal_consts = dataset_params["calibration_constants"]
 
         self.profiles = {}
         for key in sorted(f_in.keys()):
             df = pd.read_csv(target_dir / key , sep=r'\s+')
-            self.profiles[key] = (df.q.to_numpy(), df.I.to_numpy(), center_sizes[key] * scale_factor)
+            self.profiles[key] = (
+                df.q.to_numpy(), 
+                df.I.to_numpy(), 
+                center_sizes[key] * scale_factor, 
+                cal_consts[key] * scale_factor
+            )
 
 
     def __len__(self):

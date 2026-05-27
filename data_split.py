@@ -56,11 +56,8 @@ names = [
 ]
 
 paths = list(map(Path, paths))
+output_dir = Path("unet/dataset1.1/")
 
-# loaded = [load_cached(p, n) for p, n in zip(paths, names)]
-# # s_data, diff_imgs, dbs = zip(*loaded)
-
-# for (s, d, db), name in zip(loaded, names):
 train = {}
 val = {}
 test = {}
@@ -75,7 +72,10 @@ for p, n in zip(paths, names):
 
     print(n, train[n].shape)
 
-output_dir = Path("unet/dataset1.1/")
+    stemdiff.dbase.save_database(df_train, output_dir / f"db_train_{n}")
+    stemdiff.dbase.save_database(df_val, output_dir / f"db_val_{n}")
+    stemdiff.dbase.save_database(df_test, output_dir / f"db_test_{n}")
+
 save_h5(train, output_dir / "train.h5")
 save_h5(val, output_dir / "val.h5")
 save_h5(test, output_dir / "test.h5")
