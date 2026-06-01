@@ -316,8 +316,6 @@ class SameKeyBatchSampler(Sampler):
                     all_batches.append(batch)
         
         # 3. Shuffle the list of batches
-        # This ensures you don't train on Key 1 for 100 steps, then Key 2...
-        # Instead, batches from different keys are mixed together.
         if self.shuffle:
             random.shuffle(all_batches)
         

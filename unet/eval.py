@@ -1,7 +1,7 @@
 import torch
 from loss import prepare_profiles
 
-def psnr(pred, target, max_val=1.0):
+def psnr(pred, target, max_val=11810):
     """
     Compute Peak Signal-to-Noise Ratio
     pred, target: tensors [B, C, H, W]
@@ -13,7 +13,7 @@ def psnr(pred, target, max_val=1.0):
     return 20 * torch.log10(max_val / torch.sqrt(mse))
 
 @torch.no_grad()
-def evaluate(model, loader, device, criterion=None, return_examples=0):
+def evaluate(model, loader, device, criterion=None, return_every=0):
     """
     Evaluate model on DataLoader.
     
@@ -40,6 +40,7 @@ def evaluate(model, loader, device, criterion=None, return_examples=0):
             y = t
         else:
             y, p = t
+            p = (a.detach().cpu() for a in p)
 
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
@@ -55,18 +56,18 @@ def evaluate(model, loader, device, criterion=None, return_examples=0):
             total_loss += loss.item()
 
         # Compute PSNR per batch
-        batch_psnr = psnr(clean_pred, y, max_val=y.max().item())
+        batch_psnr = psnr(clean_pred, y)
         total_psnr += batch_psnr
 
-        n_batches += 1
-
         # Save some examples if requested
-        if return_examples > 0 and len(examples) < return_examples:
+        if return_every > 0 and n_batches % return_every == 0:
             examples.append((
-                x.cpu(),
-                clean_pred.cpu(),
-                t
+                x.detach().cpu(),
+                clean_pred.detach().cpu(),
+                t.detach().cpu() if isinstance(t, torch.Tensor) else (y.detach().cpu(), p)
             ))
+
+        n_batches += 1
 
     avg_loss = total_loss / n_batches if criterion is not None else None
     avg_psnr = total_psnr / n_batches
@@ -74,7 +75,7 @@ def evaluate(model, loader, device, criterion=None, return_examples=0):
     return avg_loss, avg_psnr, examples
 
 @torch.no_grad()
-def evaluate_profile1d(model, loader, device, criterion=None, return_examples=0):
+def evaluate_profile1d(model, loader, device, criterion=None, return_every=0):
     """
     Evaluate model on DataLoader.
     
@@ -110,15 +111,16 @@ def evaluate_profile1d(model, loader, device, criterion=None, return_examples=0)
         batch_mae = torch.nn.functional.l1_loss(x_profile, y_profile)
         total_mae += batch_mae
 
-        n_batches += 1
 
         # Save some examples if requested
-        if return_examples > 0 and len(examples) < return_examples:
+        if return_every > 0 and n_batches % return_every == 0:
             examples.append((
                 x.cpu(),
                 clean_pred.cpu(),
                 y
             ))
+
+        n_batches += 1
 
     avg_loss = total_loss / n_batches if criterion is not None else None
     avg_mae = total_mae / n_batches

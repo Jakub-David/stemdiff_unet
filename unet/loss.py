@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-from ediff import ediff
+import ediff
 
 def combined_loss(x: torch.Tensor, y, a=1, b=1) -> torch.Tensor:
     device = x.device
@@ -136,16 +136,7 @@ def calc_radial_distribution(tensor: torch.Tensor, center: tuple = None, max_rad
     
     # Use the specified center, or default to the center of the image
     if center is None:
-        # xc, yc = width / 2.0, height / 2.0
-        center_locator = ediff.center.IntensityCenter()
-        csquare = max(20, height // 10)
-        xc, yc = center_locator.center_of_intensity(tensor.detach().cpu().numpy(), csquare, 0.8)
-        if np.isnan(xc) or np.isnan(yc):
-            print("Warning: loss -- xc or yc is nan")
-            xc, yc = width / 2.0, height / 2.0
-        else:
-            xc, yc = round(xc), round(yc)
-
+        xc, yc = width / 2.0, height / 2.0
     else:
         xc, yc = center
         

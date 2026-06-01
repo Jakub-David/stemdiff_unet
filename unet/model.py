@@ -7,27 +7,54 @@ from pathlib import Path
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, dropout=0.0):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
-
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            nn.ReLU(inplace=True),
+        
+        # Branch 1: First conv layer group
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.LeakyReLU(inplace=True),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
         )
+        
+        # Branch 2: Second conv layer group
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
+        )
+        
+        # Final activation applied AFTER the residual addition
+        self.act = nn.LeakyReLU(inplace=True)
+
+        # The Skip Connection (Shortcut) path
+        if in_channels != out_channels:
+            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
+        else:
+            self.shortcut = nn.Identity()
 
     def forward(self, x):
-        return self.net(x)
+        # 1. Compute the residual path
+        residual = self.shortcut(x)
+        
+        # 2. Compute the main convolutional path
+        out = self.conv1(x)
+        out = self.conv2(out) # Ends with dropout, no activation yet
+        
+        # 3. Add the shortcut
+        out = out + residual
+        
+        # 4. Apply activation last
+        return self.act(out)
 
 
 class ResidualUNet(nn.Module):
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
-                 normalize=True, predict_background=True):
+                 logspace=False, normalize=True, predict_background=True):
         super().__init__()
         self.in_channels = in_channels
         self.base_channels = base_channels
         self.dropout = dropout
+        self.logspace = logspace
         self.normalize = normalize
         self.predict_background = predict_background
 
@@ -61,9 +88,12 @@ class ResidualUNet(nn.Module):
         self.up1 = nn.ConvTranspose2d(c2, c1, 2, stride=2)
         self.conv1 = DoubleConv(c1 * 2, c1, dropout=0.0)
 
-        self.final = nn.Conv2d(c1, in_channels, kernel_size=1)
+        self.final = nn.Conv2d(c1 + in_channels, in_channels, kernel_size=1)
 
     def forward(self, x):
+        if self.logspace:
+            x = torch.log1p(x)
+
         input_img = x
             
         if self.normalize:
@@ -100,7 +130,7 @@ class ResidualUNet(nn.Module):
         u1 = torch.cat([u1, d1], dim=1)
         u1 = self.conv1(u1)
 
-        output = self.final(u1)
+        output = self.final(torch.cat([u1, x], dim=1))
 
         if self.normalize:
             # Undo normalization
@@ -109,14 +139,21 @@ class ResidualUNet(nn.Module):
         if self.predict_background:
             # Residual output
             if self.training:
+                # background = torch.nn.functional.leaky_relu(output, negative_slope=0.0001) + 0.01
+                # clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.0001)
                 background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
                 clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
             else:
                 background = torch.relu(output)
                 clean = torch.relu(input_img - background)
         else:
-            background = None
-            clean = output
+            if self.training:
+                clean = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
+            else:
+                clean = output.clamp(0, input_img)
+
+        if self.logspace and not self.training:
+            clean = torch.expm1(clean)
 
         return clean
     
@@ -178,6 +215,7 @@ class ResidualUNet(nn.Module):
             "in_channels": self.in_channels,
             "base_channels": self.base_channels,
             "dropout": self.dropout,
+            "logspace": self.logspace,
             "normalize": self.normalize,
             "predict_background": self.predict_background,
             # Training state
@@ -196,6 +234,7 @@ class ResidualUNet(nn.Module):
             in_channels=c["in_channels"],
             base_channels=c["base_channels"],
             dropout=c["dropout"],
+            logspace=c["logspace"],
             normalize=c["normalize"],
             predict_background=c["predict_background"],
         )

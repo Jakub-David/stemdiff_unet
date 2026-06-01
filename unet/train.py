@@ -2,7 +2,7 @@ from model import ResidualUNet
 from loss import profile_1d_loss, combined_loss
 from data import *
 from eval import evaluate, evaluate_profile1d
-from plot import show_diffractograms, show_1D_profiles, create_profile_img
+from plot import create_profile_img
 from torch.utils.data import random_split, DataLoader
 import torch
 import torch.nn as nn
@@ -178,20 +178,23 @@ def init_profile1d(dataset_dir, batch_size, scale_factor, include_targets=False,
     return train_loader, val_loader
 
 def log_images(writer, dataset_type, global_step, examples, log_static, epoch_str):
-    for i in range(len(examples) // 5):
-        x, clean, y = examples[i * 5]
+    for i in range(len(examples)):
+        x, clean, y = examples[i]
         if dataset_type == "preprocessed+profile":
             y, p = y
         else:
             p = y
         
-        # log first two images in a batch
-        writer.add_images(f"{epoch_str}/Prediction{i}", clean[[0, 1]].detach().cpu(), global_step)
+        # log first four images in a batch
+        clean_log = clean[[0, 1, 2, 3]]
+        writer.add_images(f"{epoch_str}/Prediction{i}", clean_log, global_step)
 
         if log_static:
-            writer.add_images(f"Static/Input{i}", np.log10(x[[0, 1]].detach().cpu() + 1), global_step)
+            x_log = x[[0, 1, 2, 3]] 
+            writer.add_images(f"Static/Input{i}", x_log, global_step)
             if dataset_type != "profile":
-                writer.add_images(f"Static/Target{i}", y[[0, 1]].detach().cpu(), global_step)
+                y_log = y[[0, 1, 2, 3]]
+                writer.add_images(f"Static/Target{i}", y_log, global_step)
 
         if "profile" in dataset_type:
             writer.add_image(f"{epoch_str}/Profile{i}", create_profile_img(clean.detach().cpu(), p), global_step)
@@ -282,7 +285,7 @@ def train(config: dict, experiment_name=None):
     global_step = 0
     val_avg_loss = 0
     val_avg_psnr = 0
-    for epoch in tqdm(range(num_epochs)):
+    for epoch in (pbar := tqdm(range(num_epochs))):
         model.train()
         epoch_loss = 0.0
 
@@ -296,16 +299,22 @@ def train(config: dict, experiment_name=None):
             clean_pred = model(x)
 
             if dataset_type == "preprocessed+profile":
-                a = float(np.interp([epoch], [0, num_epochs], [1, 0])[0])
+                # TODO: add logspace support
+                a = float(np.interp([epoch], [0, num_epochs], [1, 0.1])[0])
                 b = 1 - a
                 loss = criterion(clean_pred, y, a, b)
             else:
-                loss = criterion(clean_pred, y)
+                if model_params["logspace"]:
+                    loss = criterion(clean_pred, torch.log1p(y))
+                else:
+                    loss = criterion(clean_pred, y)
 
             loss.backward()
             optimizer.step()
 
             epoch_loss += loss.item()
+            if global_step % 10 == 0:
+                pbar.set_description(f"Loss: {loss.item():.4f}")
 
             # -------------------------------
             # Logging during epoch
@@ -313,11 +322,11 @@ def train(config: dict, experiment_name=None):
             if log_interval > 0 and global_step % log_interval == 0:
                 if dataset_type == "profile":
                     val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                        model, val_loader, device, criterion, return_examples=100
+                        model, val_loader, device, criterion, return_every=5
                     )
                 else:
                     val_avg_loss, val_avg_psnr, examples = evaluate(
-                        model, val_loader, device, criterion, return_examples=100
+                        model, val_loader, device, criterion, return_every=5
                     )
 
                 
@@ -346,11 +355,11 @@ def train(config: dict, experiment_name=None):
         avg_loss = epoch_loss / len(train_loader)
         if dataset_type == "profile":
             val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                model, val_loader, device, criterion, return_examples=100
+                model, val_loader, device, criterion, return_every=5
             )
         else:
             val_avg_loss, val_avg_psnr, examples = evaluate(
-                model, val_loader, device, criterion, return_examples=100
+                model, val_loader, device, criterion, return_every=5
             )
         
         writer.add_scalar("AvgLoss/train", avg_loss, global_step)
@@ -402,16 +411,17 @@ if __name__ == "__main__":
     #     "dataset_dir": "dataset1.1",
     #     # Possible dataset_type values: "preprocessed", "profile"
     #     "dataset_type": "preprocessed",
-    #     "scale_factor": 2,
-    #     "lr": 1e-3,
-    #     "min_lr": 1e-6,
-    #     "num_epochs": 40,
+    #     "scale_factor": 1,
+    #     "lr": 3e-2,
+    #     "min_lr": 3e-5,
+    #     "num_epochs": 200,
     #     "log_interval": -1,
     #     "batch_size": 32,
     #     "model_params": {
     #         "in_channels": 1,
-    #         "base_channels": 4,
+    #         "base_channels": 1,
     #         "normalize": True,
+    #         "logspace": True,
     #         "predict_background": True
     #     },
     #     # "ckpt": "20260417_154943",
@@ -420,19 +430,20 @@ if __name__ == "__main__":
     # }
 
     config = {
-        "dataset_dir": "dataset_filtered",
-        # Possible dataset_type values: "preprocessed", "profile"
-        "dataset_type": "preprocessed+profile",
-        "scale_factor": 2,
+        "dataset_dir": "dataset1.1",
+        # Possible dataset_type values: "preprocessed", "profile", "preprocessed+profile"
+        "dataset_type": "preprocessed",
+        "scale_factor": 1,
         "lr": 1e-3,
-        "min_lr": 5e-8,
-        "num_epochs": 40,
+        "min_lr": 6e-5,
+        "num_epochs": 100,
         "log_interval": -1,
-        "batch_size": 50,
+        "batch_size": 32,
         "model_params": {
             "in_channels": 1,
-            "base_channels": 4,
-            "normalize": True,
+            "base_channels": 1,
+            "normalize": False,
+            "logspace": True,
             "predict_background": True
         },
         # "ckpt": "20260417_154943",
@@ -441,6 +452,9 @@ if __name__ == "__main__":
     }
 
     # Run training
-    # exp_id = train(config, "preprocessed_gaussian_2x")
+    # exp_id = train(config, "preprocessed_gaussian_1x_bchannels1_logloss_logspace")
     # exp_id = train(config, "profile_2x_gaussian_v2")
-    exp_id = train(config, "combined_g2x_precalc_cal_const")
+    # exp_id = train(config, "combined_g2x_precalc_cal_const")
+    # exp_id = train(config, "combined_g1x_bchannels2")
+    exp_id = train(config, "preprocessed_gaussian_1x_bc1_global_skip_improved_block")
+    
