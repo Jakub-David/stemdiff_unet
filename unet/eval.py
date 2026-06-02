@@ -62,9 +62,9 @@ def evaluate(model, loader, device, criterion=None, return_every=0):
         # Save some examples if requested
         if return_every > 0 and n_batches % return_every == 0:
             examples.append((
-                x.detach().cpu(),
-                clean_pred.detach().cpu(),
-                t.detach().cpu() if isinstance(t, torch.Tensor) else (y.detach().cpu(), p)
+                x[:5].detach().cpu(),
+                clean_pred[:5].detach().cpu(),
+                t.detach().cpu()[:5] if isinstance(t, torch.Tensor) else (y.detach().cpu()[:5], p)
             ))
 
         n_batches += 1

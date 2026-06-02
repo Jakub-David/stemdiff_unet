@@ -139,8 +139,6 @@ class ResidualUNet(nn.Module):
         if self.predict_background:
             # Residual output
             if self.training:
-                # background = torch.nn.functional.leaky_relu(output, negative_slope=0.0001) + 0.01
-                # clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.0001)
                 background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
                 clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
             else:
@@ -150,7 +148,8 @@ class ResidualUNet(nn.Module):
             if self.training:
                 clean = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
             else:
-                clean = output.clamp(0, input_img)
+                clean = torch.clamp_max_(output, input_img)
+                clean = torch.clamp_min_(output, 0)
 
         if self.logspace and not self.training:
             clean = torch.expm1(clean)

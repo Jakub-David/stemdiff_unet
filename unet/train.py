@@ -1,5 +1,5 @@
 from model import ResidualUNet
-from loss import profile_1d_loss, combined_loss
+from loss import profile_1d_loss, CombinedLoss
 from data import *
 from eval import evaluate, evaluate_profile1d
 from plot import create_profile_img
@@ -186,14 +186,14 @@ def log_images(writer, dataset_type, global_step, examples, log_static, epoch_st
             p = y
         
         # log first four images in a batch
-        clean_log = clean[[0, 1, 2, 3]]
+        clean_log = clean[:4]
         writer.add_images(f"{epoch_str}/Prediction{i}", clean_log, global_step)
 
         if log_static:
-            x_log = x[[0, 1, 2, 3]] 
+            x_log = x[:4] 
             writer.add_images(f"Static/Input{i}", x_log, global_step)
             if dataset_type != "profile":
-                y_log = y[[0, 1, 2, 3]]
+                y_log = y[:4]
                 writer.add_images(f"Static/Target{i}", y_log, global_step)
 
         if "profile" in dataset_type:
@@ -207,6 +207,7 @@ def train(config: dict, experiment_name=None):
     dataset_dir = config['dataset_dir']
     dataset_type = config['dataset_type']
     scale_factor = config['scale_factor']
+    profile_scale = config['profile_scale']
     lr = config['lr']
     min_lr = config["min_lr"]
     num_epochs = config['num_epochs']
@@ -260,7 +261,7 @@ def train(config: dict, experiment_name=None):
     if dataset_type == "profile":
         criterion = profile_1d_loss
     elif dataset_type == "preprocessed+profile":
-        criterion = combined_loss
+        criterion = CombinedLoss(model_params["logspace"], profile_scale)
     else:
         criterion = nn.HuberLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -299,9 +300,12 @@ def train(config: dict, experiment_name=None):
             clean_pred = model(x)
 
             if dataset_type == "preprocessed+profile":
-                # TODO: add logspace support
-                a = float(np.interp([epoch], [0, num_epochs], [1, 0.1])[0])
-                b = 1 - a
+                if epoch < 5:
+                    a = 1
+                    b = -1
+                else:
+                    a = float(np.interp(epoch, [0, num_epochs], [1, 0.1]))
+                    b = 1 - a
                 loss = criterion(clean_pred, y, a, b)
             else:
                 if model_params["logspace"]:
@@ -434,8 +438,9 @@ if __name__ == "__main__":
         # Possible dataset_type values: "preprocessed", "profile", "preprocessed+profile"
         "dataset_type": "preprocessed",
         "scale_factor": 1,
-        "lr": 1e-3,
-        "min_lr": 6e-5,
+        "profile_scale": 1,
+        "lr": 3e-3,
+        "min_lr": 3e-5,
         "num_epochs": 100,
         "log_interval": -1,
         "batch_size": 32,
@@ -456,5 +461,6 @@ if __name__ == "__main__":
     # exp_id = train(config, "profile_2x_gaussian_v2")
     # exp_id = train(config, "combined_g2x_precalc_cal_const")
     # exp_id = train(config, "combined_g1x_bchannels2")
-    exp_id = train(config, "preprocessed_gaussian_1x_bc1_global_skip_improved_block")
+    # exp_id = train(config, "combined_reduced_channels_logspace_profile2x")
+    exp_id = train(config, "preprocessed_bc1_logspace")
     

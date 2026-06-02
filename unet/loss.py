@@ -3,26 +3,38 @@ import torch.nn.functional as F
 import numpy as np
 import ediff
 
-def combined_loss(x: torch.Tensor, y, a=1, b=1) -> torch.Tensor:
-    device = x.device
-    y, p = y
-    y = y.to(device, non_blocking=True)
-    return a * torch.nn.functional.huber_loss(x, y) + b * profile_1d_loss(x, p)
+class CombinedLoss(torch.nn.Module):
+    def __init__(self, logspace=False, profile_scale=1):
+        super().__init__()
+        self.logspace = logspace
+        self.profile_scale = profile_scale
 
-def profile_1d_loss(input2d: torch.Tensor, target) -> torch.Tensor:
-    intensity, target1d = prepare_profiles(input2d, target)
+    def forward(self, x: torch.Tensor, y, a=1, b=1) -> torch.Tensor:
+        device = x.device
+        y, p = y
+        y = y.to(device, non_blocking=True)
+        if self.logspace:
+            return a * torch.nn.functional.huber_loss(x, torch.log1p(y)) + \
+                b * (profile_1d_loss(torch.expm1(x), p, self.profile_scale) if b > 0 else 0)
+        else:
+            return a * torch.nn.functional.huber_loss(x, y) + \
+                b * (profile_1d_loss(x, p, self.profile_scale) if b > 0 else 0)
+
+def profile_1d_loss(input2d: torch.Tensor, target, profile_scale=1) -> torch.Tensor:
+    intensity, target1d = prepare_profiles(input2d, target, profile_scale)
     return torch.nn.functional.huber_loss(intensity, target1d)
 
-def prepare_profiles(input2d, target) -> tuple[torch.Tensor, torch.Tensor]:
+def prepare_profiles(input2d, target, profile_scale=1) -> tuple[torch.Tensor, torch.Tensor]:
     device = input2d.device
     summed_input2d = sum_aligned_images(input2d)
-    # summed_input2d = F.interpolate(summed_input2d.unsqueeze(0), (1024, 1024), mode="bicubic")
+    if profile_scale != 1:
+        summed_input2d = F.interpolate(summed_input2d.unsqueeze(0), scale_factor=profile_scale, mode="bicubic")
     radial_distance, intensity = calc_radial_distribution(summed_input2d.squeeze())
 
     # Batch contains target for each input, however, all of them should be identical
     q, I, center_size, calibration_constant = target
-    center_size = center_size[0]
-    calibration_constant = calibration_constant[0]
+    center_size = center_size[0] * profile_scale
+    calibration_constant = calibration_constant[0] * profile_scale
     q, I = q[0].to(device, non_blocking=True), I[0].to(device, non_blocking=True)
 
     # remove center and normalize
@@ -81,13 +93,12 @@ def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
     for i in range(b):
         csquare = max(20, h // 10)
         cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy(), csquare, 0.8)
-        if np.isnan(cx) or np.isnan(cy):
-            print("Warning: loss -- sx or sy is nan")
-            sx, sy = 0, 0
-        else:
+        if np.isfinite(cx) and np.isfinite(cy):
             cx, cy = round(cx), round(cy)
             sx = target_x - cx
             sy = target_y - cy
+        else:
+            sx, sy = 0, 0
         
         # Determine the slices for the input image and the target aligned tensor
         # src_x_start/end define the region of the image we read from
