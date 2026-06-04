@@ -2,10 +2,32 @@ import itertools
 import pickle
 from pathlib import Path
 import numpy as np
-from sklearn.metrics import mean_absolute_error
+import sklearn.metrics as metrics
+import scipy.special
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
+from functools import partialmethod
 
 from examples.sum.sum_fn import *
 import ediff as ed
+
+# ==========================================
+# 0. DEFINE METRICS
+# ==========================================
+
+def kl_divergence(x, y):
+    # Tiny constant (epsilon)
+    epsilon = 1e-12
+
+    # Smooth the arrays by adding epsilon to all elements
+    x_smoothed = x + epsilon
+    y_smoothed = y + epsilon
+
+    # Normalize
+    P = x_smoothed / x_smoothed.sum()
+    Q = y_smoothed / y_smoothed.sum()
+
+    return scipy.special.rel_entr(P, Q).sum()
 
 # ==========================================
 # 1. CONFIGURATION & DATASETS
@@ -21,16 +43,47 @@ DATASETS = {
         "db_path": "unet/dataset1.1/dbase/",
         "db_file": "db_train_au",
         "filter_count": 100,
-        "wavelength": 0.71,
+    },
+    "tbf3": {
+        "path": DATA_DIR / "2_TBF3/VZ2.TBF3.R2",
+        "XRD_PATH": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
+        "xrange": (30, 800),
+        "xrd_range": (0, 1.9),
+        "db_path": "unet/dataset1.1/dbase/",
+        "db_file": "db_train_tbf3",
+        "filter_count": 100,
+    },
+    "feo": {
+        "path": DATA_DIR / "3_FEO_PURE/FeO-Pure_Cimc",
+        "XRD_PATH": "DATA.STEMDIFF/cif/Fe3O4.cif",
+        "xrange": (32, 800),
+        "xrd_range": (0, 10),
+        "db_path": "unet/dataset1.1/dbase/",
+        "db_file": "db_train_feo",
+        "filter_count": 100,
+    },
+    "laf3": {
+        "path": DATA_DIR / "4_MARUSKA_LAF3/D_MARUSKA_C214",
+        "XRD_PATH": "DATA.STEMDIFF/cif/laf3_9008114.cif",
+        "xrange": (32, 800),
+        "xrd_range": (0, 10),
+        "db_path": "unet/dataset1.1/dbase/",
+        "db_file": "db_train_laf3",
+        "filter_count": 100,
     },
 }
 
 # Define the grid search space for bkgp
 PARAM_GRID = {
-    "sigma": [10, 14, 18],
-    "thr": [2.0, 2.5, 3.0],
-    "area_size": [3, 5, 7],
+    "sigma": [i for i in range(1, 20, 2)],
+    "thr": [i/2 for i in range(1, 10)],
+    "area_size": [1, 3, 5, 7, 10],
 }
+# PARAM_GRID = {
+#     "sigma": [i / 10 for i in range(5, 30, 2)],
+#     "thr": [i/2 for i in range(2, 5)],
+#     "area_size": [3, 5, 7],
+# }
 
 CACHE_DIR = Path("./grid_search_cache")
 CACHE_DIR.mkdir(exist_ok=True)
@@ -45,10 +98,56 @@ def get_param_combinations(grid):
     return [dict(zip(keys, v)) for v in itertools.product(*values)]
 
 
-def run_grid_search(dataset_name, ds_config, param_combinations, visualize_best=True):
-    print(f"\n=== Starting Grid Search for Dataset: {dataset_name} ===")
+def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD, xrange, xrd_range, metric):
+    """
+    Worker function executed in parallel for a single parameter combination.
+    """
+    # Force tqdm to default to disabled inside this process
+    tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
-    # Load base dataset data
+    param_id = f"sigma_{bkgp['sigma']}_thr_{bkgp['thr']}_area_{bkgp['area_size']}"
+    sum_cache_path = ds_cache_dir / f"sum_{param_id}.npy"
+    prof_cache_path = ds_cache_dir / f"prof_{param_id}.pkl"
+
+    # --- STEP 1: Summed Results ---
+    if sum_cache_path.exists():
+        sum_gaussian = np.load(sum_cache_path)
+    else:
+        sum_gaussian = sd.sum.sum_datafiles(
+            SDATA, DIFFIMAGES, df, bkg=3, bkgp=bkgp
+        )
+        np.save(sum_cache_path, sum_gaussian)
+
+    # --- STEP 2: Profile Results ---
+    if prof_cache_path.exists():
+        with open(prof_cache_path, "rb") as f:
+            prof_gaussian = pickle.load(f)
+    else:
+        prof_gaussian = create_profile(
+            sum_gaussian,
+            XRD,
+            xrange,
+            xrd_range=xrd_range,
+            show=False,
+            center=None,
+            in_file="examples/sum/center.txt",
+        )
+        with open(prof_cache_path, "wb") as f:
+            pickle.dump(prof_gaussian, f)
+
+    # --- STEP 3: Metric Evaluation ---
+    diff_g = prof_gaussian.diffractogram
+    gaussian_I = np.interp(XRD.diffractogram.q, diff_g.q, diff_g.I)
+    score = metric(XRD.diffractogram.I, gaussian_I)
+
+    # Return results alongside the profile object (needed for final visualization)
+    return {"params": bkgp, "score": score, "prof_gaussian": prof_gaussian}
+
+
+def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric, visualize_best=True):
+    print(f"\n=== Starting Parallel Grid Search for Dataset: {dataset_name} ===")
+
+    # Load base dataset data once
     SDATA, DIFFIMAGES, df_all = load_cached(
         ds_config["path"],
         dataset_name,
@@ -57,74 +156,68 @@ def run_grid_search(dataset_name, ds_config, param_combinations, visualize_best=
     )
     df = filter_datafiles(df_all, ds_config["filter_count"])
 
-    # Load reference XRD
+    # Load reference XRD once
     XRD = ed.pcryst.XRD_polycrystal(
         structure=ds_config["XRD_PATH"],
-        wavelength=ds_config["wavelength"],
+        wavelength=0.71,
         two_theta_range=(5, 100),
-        peak_profile_sigma=0.1,
+        peak_profile_sigma=0.3,
     )
 
-    best_score = float("inf")
-    best_params = None
-    best_prof = None
-    results = []
-
-    # Dataset specific cache directory
     ds_cache_dir = CACHE_DIR / dataset_name
     ds_cache_dir.mkdir(exist_ok=True)
 
-    for i, bkgp in enumerate(param_combinations):
-        print(f"[{i+1}/{len(param_combinations)}] Testing: {bkgp}")
+    results = []
+    best_score = float("inf")
+    best_params = None
+    best_prof = None
 
-        # Unique string id for caching this specific run
-        param_id = f"sigma_{bkgp['sigma']}_thr_{bkgp['thr']}_area_{bkgp['area_size']}"
-        sum_cache_path = ds_cache_dir / f"sum_{param_id}.npy"
-        prof_cache_path = ds_cache_dir / f"prof_{param_id}.pkl"
+    total_tasks = len(param_combinations)
 
-        # --- STEP 1: Summed Results (Cache/Compute) ---
-        if sum_cache_path.exists():
-            sum_gaussian = np.load(sum_cache_path)
-        else:
-            sum_gaussian = sd.summ.sum_datafiles(
-                SDATA, DIFFIMAGES, df, bkg=3, bkgp=bkgp
-            )
-            np.save(sum_cache_path, sum_gaussian)
-
-        # --- STEP 2: Profile Results (Cache/Compute) ---
-        if prof_cache_path.exists():
-            with open(prof_cache_path, "rb") as f:
-                prof_gaussian = pickle.load(f)
-        else:
-            prof_gaussian = create_profile(
-                sum_gaussian,
+    # Get rid of generator for ProcessPoolExecutor to work
+    # (generator can not be pickled)
+    SDATA.filenames = list(SDATA.filenames)
+    
+    # max_workers=None defaults to the machine's CPU core count
+    with ProcessPoolExecutor(max_workers=None) as executor:
+        # Submit all tasks to the process pool
+        futures = {
+            executor.submit(
+                evaluate_single_combination,
+                bkgp,
+                ds_cache_dir,
+                SDATA,
+                DIFFIMAGES,
+                df,
                 XRD,
                 ds_config["xrange"],
-                xrd_range=ds_config["xrd_range"],
-                show=False,
-                center=None,
-                in_file="examples/sum/center.txt",
-            )
-            with open(prof_cache_path, "wb") as f:
-                pickle.dump(prof_gaussian, f)
+                ds_config["xrd_range"],
+                metric
+            ): bkgp for bkgp in param_combinations
+        }
 
-        # --- STEP 3: Metric Evaluation ---
-        diff_g = prof_gaussian.diffractogram
-        gaussian_I = np.interp(XRD.diffractogram.q, diff_g.q, diff_g.I)
-        score = mean_absolute_error(XRD.diffractogram.I, gaussian_I)
+        # Process results as they finish
+        for idx, future in enumerate(as_completed(futures), 1):
+            try:
+                res = future.result()
+                bkgp = res["params"]
+                score = res["score"]
+                prof_gaussian = res["prof_gaussian"]
 
-        print(f"--> MAE: {score:.5f}")
-        results.append({"params": bkgp, "score": score})
+                print(f"[{idx}/{total_tasks}] Finished: {bkgp} --> {metric.__name__}: {score:.5f}")
+                results.append({"params": bkgp, "score": score})
 
-        # Track the best performer
-        if score < best_score:
-            best_score = score
-            best_params = bkgp
-            best_prof = prof_gaussian
+                # Track the best performer overall
+                if score < best_score:
+                    best_score = score
+                    best_params = bkgp
+                    best_prof = prof_gaussian
 
-    print(
-        f"\nGrid Search Finished! Best Params: {best_params} | Best MAE: {best_score:.5f}"
-    )
+            except Exception as exc:
+                failed_params = futures[future]
+                print(f"Combination {failed_params} generated an exception: {exc}")
+
+    print(f"\nGrid Search Finished! Best Params: {best_params} | Best Score: {best_score:.5f}")
 
     # --- STEP 4: Optional Visualization ---
     if visualize_best and best_prof is not None:
@@ -146,8 +239,12 @@ def run_grid_search(dataset_name, ds_config, param_combinations, visualize_best=
 if __name__ == "__main__":
     combinations = get_param_combinations(PARAM_GRID)
 
-    # Loop through all datasets configured
     for ds_name, ds_config in DATASETS.items():
-        best_p, best_s, all_res = run_grid_search(
-            ds_name, ds_config, combinations, visualize_best=True
+        best_p, best_s, all_res = run_grid_search_parallel(
+            ds_name, 
+            ds_config, 
+            combinations,
+            # metrics.mean_absolute_error,
+            kl_divergence,
+            visualize_best=True
         )
