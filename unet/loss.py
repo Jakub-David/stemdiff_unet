@@ -50,31 +50,29 @@ def prepare_profiles(input2d, target, profile_scale=1) -> tuple[torch.Tensor, to
 
 
 def resize_target(q, I, calibration_constant) -> torch.Tensor:
-    # 1. Define the number of bins (15 targets means 16 bin edges)
-    num_bins = torch.ceil(q[-1] * calibration_constant).int()
-    bin_edges = torch.linspace(0, q.max(), num_bins + 1, device=q.device)
+    # 0. Define the number of bins
+    N = torch.ceil(q[-1] * calibration_constant).int()
 
-    # 2. Assign each row's float position to a bin
-    bin_indices = torch.bucketize(q, bin_edges)
-    # Ensure indices stay within range
-    bin_indices = torch.clamp(bin_indices, 0, num_bins - 1)
+    # 1. Round x and convert to long/int so it can be used as indices
+    # We also clip the values to ensure they stay within [0, N-1]
+    indices = torch.round(q * calibration_constant).long().clamp(0, N - 1)
 
-    # 3. Aggregate the values for each bin
-    tensor_data = torch.zeros(num_bins, device=q.device)
-    for i in range(num_bins):
-        mask = bin_indices == i
-        if torch.any(mask):
-            tensor_data[i] = torch.tensor(I[mask].max(), device=q.device)
+    # 2. Initialize the output tensor of length N
+    out = torch.zeros((N,), dtype=I.dtype, device=I.device)
 
-    return tensor_data
+    # 3. Use scatter_reduce to find the maximum for each index
+    out.scatter_reduce_(dim=0, index=indices, src=I, reduce="amax", include_self=False)
 
-def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
+    return out
+
+def sum_aligned_images(images: torch.Tensor, centers=None) -> torch.Tensor:
     """
     Sums 2D images in a torch tensor of shape (b, 1, x, x) by aligning their centers 
     (the location of the maximum value). Edges are filled with zeros instead of rolling.
 
     Args:
         images (torch.Tensor): Input tensor of shape (b, 1, x, x).
+        centers (torch.Tensor): Centres of images - shape (b, 2).
 
     Returns:
         torch.Tensor: The summed 2D image of shape (1, x, x).
@@ -91,8 +89,11 @@ def sum_aligned_images(images: torch.Tensor) -> torch.Tensor:
     
     center_locator = ediff.center.IntensityCenter()
     for i in range(b):
-        csquare = max(20, h // 10)
-        cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy(), csquare, 0.8)
+        if centers is None:
+            csquare = max(20, h // 10)
+            cx, cy = center_locator.center_of_intensity(images[i, 0].detach().cpu().numpy(), csquare, 0.8)
+        else:
+            cx, cy = centers[i]
         if np.isfinite(cx) and np.isfinite(cy):
             cx, cy = round(cx), round(cy)
             sx = target_x - cx

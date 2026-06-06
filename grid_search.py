@@ -29,6 +29,11 @@ def kl_divergence(x, y):
 
     return scipy.special.rel_entr(P, Q).sum()
 
+def adjusted_mae(x, y):
+    x = 1 / (-x + 2)
+    y = 1 / (-y + 2)
+    return metrics.mean_absolute_error(x, y)
+
 # ==========================================
 # 1. CONFIGURATION & DATASETS
 # ==========================================
@@ -98,7 +103,8 @@ def get_param_combinations(grid):
     return [dict(zip(keys, v)) for v in itertools.product(*values)]
 
 
-def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD, xrange, xrd_range, metric):
+def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD, 
+                                xrange, xrd_range, metric, recalculate_profiles):
     """
     Worker function executed in parallel for a single parameter combination.
     """
@@ -122,6 +128,9 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD, 
     if prof_cache_path.exists():
         with open(prof_cache_path, "rb") as f:
             prof_gaussian = pickle.load(f)
+        if recalculate_profiles:
+            prof_gaussian.subtract_background(None, xrange=xrange)
+            prof_gaussian.calibrate_and_normalize('MaxPeaksInRange', XRD, xrd_range=xrd_range, eld_range=None)
     else:
         prof_gaussian = create_profile(
             sum_gaussian,
@@ -144,7 +153,8 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD, 
     return {"params": bkgp, "score": score, "prof_gaussian": prof_gaussian}
 
 
-def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric, visualize_best=True):
+def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric, 
+                             recalculate_profiles=False, visualize_best=True):
     print(f"\n=== Starting Parallel Grid Search for Dataset: {dataset_name} ===")
 
     # Load base dataset data once
@@ -192,7 +202,8 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
                 XRD,
                 ds_config["xrange"],
                 ds_config["xrd_range"],
-                metric
+                metric,
+                recalculate_profiles
             ): bkgp for bkgp in param_combinations
         }
 
@@ -217,12 +228,13 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
                 failed_params = futures[future]
                 print(f"Combination {failed_params} generated an exception: {exc}")
 
-    print(f"\nGrid Search Finished! Best Params: {best_params} | Best Score: {best_score:.5f}")
+    print("\nGrid Search Finished!")
+    print(f"Results for dataset {ds_name} -- Best Params: {best_params} | Best Score: {best_score:.5f}")
 
     # --- STEP 4: Optional Visualization ---
     if visualize_best and best_prof is not None:
         print("Visualizing best result...")
-        ed.io.Plots.plot_final_eld_and_xrd(
+        ed.io.Plots.plot_multiple_eld_and_xrd(
             best_prof.diffractogram,
             XRD.diffractogram,
             eld_data_label=f"Best Gaussian {best_params}",
@@ -245,6 +257,8 @@ if __name__ == "__main__":
             ds_config, 
             combinations,
             # metrics.mean_absolute_error,
+            # adjusted_mae,
             kl_divergence,
+            recalculate_profiles=True,
             visualize_best=True
         )
