@@ -2,6 +2,7 @@ import itertools
 import pickle
 from pathlib import Path
 import numpy as np
+import pandas as pd
 import sklearn.metrics as metrics
 import scipy.special
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -29,10 +30,15 @@ def kl_divergence(x, y):
 
     return scipy.special.rel_entr(P, Q).sum()
 
-def adjusted_mae(x, y):
-    x = 1 / (-x + 2)
-    y = 1 / (-y + 2)
-    return metrics.mean_absolute_error(x, y)
+def symmetric_mean_absolute_percentage_error(x, y):
+    # Tiny constant (epsilon)
+    epsilon = 1e-12
+
+    # Smooth the arrays by adding epsilon to all elements
+    x = x + epsilon
+    y = y + epsilon
+
+    return (2 / len(x)) * np.sum(np.abs(x - y) / (np.abs(x) + np.abs(y)))
 
 # ==========================================
 # 1. CONFIGURATION & DATASETS
@@ -42,7 +48,8 @@ DATA_DIR = Path("DATA.STEMDIFF/")
 DATASETS = {
     "au": {
         "path": DATA_DIR / "1_AU/EX1.AU/DATA",
-        "XRD_PATH": "DATA.STEMDIFF/cif/au_9008463.cif",
+        "cif_path": "DATA.STEMDIFF/cif/au_9008463.cif",
+        "xrd_path": "unet/dataset1.1/au",
         "xrange": (55, 800),
         "xrd_range": None,
         "db_path": "unet/dataset1.1/dbase/",
@@ -51,7 +58,8 @@ DATASETS = {
     },
     "tbf3": {
         "path": DATA_DIR / "2_TBF3/VZ2.TBF3.R2",
-        "XRD_PATH": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
+        "cif_path": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
+        "xrd_path": "unet/dataset1.1/tbf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.9),
         "db_path": "unet/dataset1.1/dbase/",
@@ -60,7 +68,8 @@ DATASETS = {
     },
     "feo": {
         "path": DATA_DIR / "3_FEO_PURE/FeO-Pure_Cimc",
-        "XRD_PATH": "DATA.STEMDIFF/cif/Fe3O4.cif",
+        "cif_path": "DATA.STEMDIFF/cif/Fe3O4.cif",
+        "xrd_path": "unet/dataset1.1/feo",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
         "db_path": "unet/dataset1.1/dbase/",
@@ -69,7 +78,8 @@ DATASETS = {
     },
     "laf3": {
         "path": DATA_DIR / "4_MARUSKA_LAF3/D_MARUSKA_C214",
-        "XRD_PATH": "DATA.STEMDIFF/cif/laf3_9008114.cif",
+        "cif_path": "DATA.STEMDIFF/cif/laf3_9008114.cif",
+        "xrd_path": "unet/dataset1.1/laf3",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
         "db_path": "unet/dataset1.1/dbase/",
@@ -78,11 +88,20 @@ DATASETS = {
     },
 }
 
+# TODO: utilize the constants (currently not used)
+CALIBRATION_CONSTANTS = {
+    "au": 7.329198475403513,
+    "feo": 7.958597562130453,
+    "gdf3": 7.316716257743526,
+    "laf3": 7.918715861572124,
+    "tbf3": 7.365443816765566
+}
+
 # Define the grid search space for bkgp
 PARAM_GRID = {
-    "sigma": [i for i in range(1, 20, 2)],
-    "thr": [i/2 for i in range(1, 10)],
-    "area_size": [1, 3, 5, 7, 10],
+    "sigma": [i for i in range(1, 20, 2)] + [0.5, 0.75, 1.5, 2, 2.5, 4],
+    "thr": [i/2 for i in range(1, 10)] + list(range(5, 11)) + [11, 13, 15, 17, 20, 25],
+    "area_size": list(range(1, 6)) + [6, 8, 10, 12, 15, 20],
 }
 # PARAM_GRID = {
 #     "sigma": [i / 10 for i in range(5, 30, 2)],
@@ -146,15 +165,19 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
 
     # --- STEP 3: Metric Evaluation ---
     diff_g = prof_gaussian.diffractogram
-    gaussian_I = np.interp(XRD.diffractogram.q, diff_g.q, diff_g.I)
-    score = metric(XRD.diffractogram.I, gaussian_I)
+    if diff_g.I.sum() < 0.01:
+        score = np.inf
+    else:
+        gaussian_I = np.interp(XRD.diffractogram.q, diff_g.q, diff_g.I)
+        score = metric(XRD.diffractogram.I, gaussian_I)
 
     # Return results alongside the profile object (needed for final visualization)
     return {"params": bkgp, "score": score, "prof_gaussian": prof_gaussian}
 
 
 def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric, 
-                             recalculate_profiles=False, visualize_best=True):
+                             recalculate_profiles=False, visualize_best=True,
+                             verbose=True):
     print(f"\n=== Starting Parallel Grid Search for Dataset: {dataset_name} ===")
 
     # Load base dataset data once
@@ -168,11 +191,16 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
 
     # Load reference XRD once
     XRD = ed.pcryst.XRD_polycrystal(
-        structure=ds_config["XRD_PATH"],
+        structure=ds_config["cif_path"],
         wavelength=0.71,
         two_theta_range=(5, 100),
         peak_profile_sigma=0.3,
     )
+    
+    # Replace XRD diff if provided
+    xrd_path = ds_config.get("xrd_path")
+    if xrd_path is not None:
+        XRD.diffractogram = pd.read_csv(xrd_path, sep=r'\s+')
 
     ds_cache_dir = CACHE_DIR / dataset_name
     ds_cache_dir.mkdir(exist_ok=True)
@@ -208,25 +236,31 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
         }
 
         # Process results as they finish
-        for idx, future in enumerate(as_completed(futures), 1):
-            try:
-                res = future.result()
-                bkgp = res["params"]
-                score = res["score"]
-                prof_gaussian = res["prof_gaussian"]
+        with tqdm(total=len(futures)) as pbar:
+            for idx, future in enumerate(as_completed(futures), 1):
+                try:
+                    res = future.result()
+                    bkgp = res["params"]
+                    score = res["score"]
+                    prof_gaussian = res["prof_gaussian"]
 
-                print(f"[{idx}/{total_tasks}] Finished: {bkgp} --> {metric.__name__}: {score:.5f}")
-                results.append({"params": bkgp, "score": score})
+                    if verbose:
+                        tqdm.write(f"[{idx}/{total_tasks}] Finished: {bkgp} --> {metric.__name__}: {score:.5f}")
+                    results.append({"params": bkgp, "score": score})
 
-                # Track the best performer overall
-                if score < best_score:
-                    best_score = score
-                    best_params = bkgp
-                    best_prof = prof_gaussian
+                    # Track the best performer overall
+                    if score < best_score:
+                        best_score = score
+                        best_params = bkgp
+                        best_prof = prof_gaussian
 
-            except Exception as exc:
-                failed_params = futures[future]
-                print(f"Combination {failed_params} generated an exception: {exc}")
+                except Exception as exc:
+                    failed_params = futures[future]
+                    tqdm.write(f"Combination {failed_params} generated an exception: {exc}")
+                finally:
+                    # Free memory
+                    futures.pop(future)
+                    pbar.update()
 
     print("\nGrid Search Finished!")
     print(f"Results for dataset {ds_name} -- Best Params: {best_params} | Best Score: {best_score:.5f}")
@@ -256,9 +290,11 @@ if __name__ == "__main__":
             ds_name, 
             ds_config, 
             combinations,
-            # metrics.mean_absolute_error,
-            # adjusted_mae,
-            kl_divergence,
+            metrics.mean_absolute_error,
+            # metrics.mean_absolute_percentage_error,
+            # symmetric_mean_absolute_percentage_error,
+            # kl_divergence,
             recalculate_profiles=True,
-            visualize_best=True
+            visualize_best=True,
+            verbose=False
         )
