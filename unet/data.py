@@ -240,12 +240,11 @@ class Profile1DDataset(Dataset):
 
         self.profiles = {}
         for key in sorted(f_in.keys()):
-            df = pd.read_csv(target_dir / key , sep=r'\s+')
+            profile_fname = key + (f"x{scale_factor}" if scale_factor != 1 else "")
+            p = np.loadtxt(target_dir / "target_profiles" / profile_fname)
             self.profiles[key] = (
-                df.q.to_numpy(), 
-                df.I.to_numpy(), 
+                p, 
                 center_sizes[key] * scale_factor, 
-                cal_consts[key] * scale_factor
             )
 
 

@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import sklearn.metrics as metrics
 import scipy.special
+import scipy.spatial.distance
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
@@ -39,6 +40,11 @@ def symmetric_mean_absolute_percentage_error(x, y):
     y = y + epsilon
 
     return (2 / len(x)) * np.sum(np.abs(x - y) / (np.abs(x) + np.abs(y)))
+
+def hellinger_distance(x, y):
+    return np.sqrt(
+        np.sum((np.sqrt(x) - np.sqrt(y)) ** 2)
+    ) / np.sqrt(2)
 
 # ==========================================
 # 1. CONFIGURATION & DATASETS
@@ -86,15 +92,25 @@ DATASETS = {
         "db_file": "db_train_laf3",
         "filter_count": 100,
     },
+    "gdf3": {
+        "path": DATA_DIR / "X1_GDF3/VZ2.GDF3.R2",
+        "cif_path": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
+        "xrd_path": "unet/dataset1.1/gdf3",
+        "xrange": (30, 800),
+        "xrd_range": (0, 1.9),
+        "db_path": "unet/dataset1.1/dbase/",
+        "db_file": "db_train_gdf3",
+        "filter_count": 100,
+    },
 }
 
-# TODO: utilize the constants (currently not used)
+# Calibration constants * upscale factor
 CALIBRATION_CONSTANTS = {
-    "au": 7.329198475403513,
-    "feo": 7.958597562130453,
-    "gdf3": 7.316716257743526,
-    "laf3": 7.918715861572124,
-    "tbf3": 7.365443816765566
+    "au": 7.402490460157548 * 4,
+    "feo": 7.958597562130453 * 4,
+    "gdf3": 7.316716257743526 * 4,
+    "laf3": 7.918715861572124 * 4,
+    "tbf3": 7.36544381676556 * 4
 }
 
 # Define the grid search space for bkgp
@@ -103,11 +119,6 @@ PARAM_GRID = {
     "thr": [i/2 for i in range(1, 10)] + list(range(5, 11)) + [11, 13, 15, 17, 20, 25],
     "area_size": list(range(1, 6)) + [6, 8, 10, 12, 15, 20],
 }
-# PARAM_GRID = {
-#     "sigma": [i / 10 for i in range(5, 30, 2)],
-#     "thr": [i/2 for i in range(2, 5)],
-#     "area_size": [3, 5, 7],
-# }
 
 CACHE_DIR = Path("./grid_search_cache")
 CACHE_DIR.mkdir(exist_ok=True)
@@ -162,10 +173,15 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
         )
         with open(prof_cache_path, "wb") as f:
             pickle.dump(prof_gaussian, f)
+    
+    # Apply calibration constant
+    prof_gaussian.diffractogram.q = prof_gaussian.diffractogram.Pixels / CALIBRATION_CONSTANTS[XRD.dataset_name]
 
     # --- STEP 3: Metric Evaluation ---
     diff_g = prof_gaussian.diffractogram
-    if diff_g.I.sum() < 0.01:
+    # Is sum of profile intensities is small,
+    # the background subtraction is too aggressive and images are empty
+    if diff_g.I.sum() < 1.2:
         score = np.inf
     else:
         gaussian_I = np.interp(XRD.diffractogram.q, diff_g.q, diff_g.I)
@@ -194,13 +210,16 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
         structure=ds_config["cif_path"],
         wavelength=0.71,
         two_theta_range=(5, 100),
-        peak_profile_sigma=0.3,
+        peak_profile_sigma=0.1,
     )
     
     # Replace XRD diff if provided
     xrd_path = ds_config.get("xrd_path")
     if xrd_path is not None:
         XRD.diffractogram = pd.read_csv(xrd_path, sep=r'\s+')
+
+    # Save dataset name to avoid another parameter
+    XRD.dataset_name = dataset_name
 
     ds_cache_dir = CACHE_DIR / dataset_name
     ds_cache_dir.mkdir(exist_ok=True)
@@ -290,10 +309,11 @@ if __name__ == "__main__":
             ds_name, 
             ds_config, 
             combinations,
-            metrics.mean_absolute_error,
+            # metrics.mean_absolute_error,
             # metrics.mean_absolute_percentage_error,
             # symmetric_mean_absolute_percentage_error,
             # kl_divergence,
+            scipy.spatial.distance.jensenshannon,
             recalculate_profiles=True,
             visualize_best=True,
             verbose=False

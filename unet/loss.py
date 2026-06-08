@@ -73,7 +73,7 @@ def nearest_interpolate_1d(x, y, M):
 
 def resize_target(q, I, calibration_constant, nearest=False) -> torch.Tensor:
     # 0. Define the number of bins
-    N = torch.ceil(q[-1] * calibration_constant).int()
+    N = torch.round(q[-1] * calibration_constant).int()
 
     if nearest:
         return nearest_interpolate_1d(q * calibration_constant, I, N)
