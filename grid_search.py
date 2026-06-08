@@ -3,12 +3,13 @@ import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import sklearn.metrics as metrics
+import sklearn.metrics
 import scipy.special
 import scipy.spatial.distance
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
+import datetime
 
 from examples.sum.sum_fn import *
 import ediff as ed
@@ -175,7 +176,8 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
             pickle.dump(prof_gaussian, f)
     
     # Apply calibration constant
-    prof_gaussian.diffractogram.q = prof_gaussian.diffractogram.Pixels / CALIBRATION_CONSTANTS[XRD.dataset_name]
+    if CALIBRATION_CONSTANTS is not None:
+        prof_gaussian.diffractogram.q = prof_gaussian.diffractogram.Pixels / CALIBRATION_CONSTANTS[XRD.dataset_name]
 
     # --- STEP 3: Metric Evaluation ---
     diff_g = prof_gaussian.diffractogram
@@ -193,7 +195,7 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
 
 def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric, 
                              recalculate_profiles=False, visualize_best=True,
-                             verbose=True):
+                             verbose=True, result_dir=None):
     print(f"\n=== Starting Parallel Grid Search for Dataset: {dataset_name} ===")
 
     # Load base dataset data once
@@ -284,8 +286,18 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
     print("\nGrid Search Finished!")
     print(f"Results for dataset {ds_name} -- Best Params: {best_params} | Best Score: {best_score:.5f}")
 
-    # --- STEP 4: Optional Visualization ---
-    if visualize_best and best_prof is not None:
+    # --- STEP 4: Save result ---
+    plot_fname = None
+    if result_dir is not None:
+        with open(result_dir / f"{dataset_name}_xrd", "wb") as f:
+            pickle.dump(XRD, f)
+        with open(result_dir / f"{dataset_name}_eld", "wb") as f:
+            pickle.dump(best_prof, f)
+
+        plot_fname = f"{dataset_name}.png"
+
+    # --- STEP 5: Optional Visualization ---
+    if best_prof is not None:
         print("Visualizing best result...")
         ed.io.Plots.plot_multiple_eld_and_xrd(
             best_prof.diffractogram,
@@ -293,6 +305,8 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
             eld_data_label=f"Best Gaussian {best_params}",
             fine_tune=1,
             Xlim=(0, 14),
+            CLI=not visualize_best,
+            out_file=plot_fname
         )
 
     return best_params, best_score, results
@@ -303,18 +317,28 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
 # ==========================================
 if __name__ == "__main__":
     combinations = get_param_combinations(PARAM_GRID)
+    metrics = [
+        sklearn.metrics.mean_absolute_error,
+        sklearn.metrics.mean_absolute_percentage_error,
+        symmetric_mean_absolute_percentage_error,
+        kl_divergence,
+        scipy.spatial.distance.jensenshannon,
+    ]
+    
+    run_name = ""
+    for metric in metrics:
+        result_dir = Path("grid_search_results") / \
+            f"{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}_{metric.__name__}{run_name}"
+        result_dir.mkdir()
 
-    for ds_name, ds_config in DATASETS.items():
-        best_p, best_s, all_res = run_grid_search_parallel(
-            ds_name, 
-            ds_config, 
-            combinations,
-            # metrics.mean_absolute_error,
-            # metrics.mean_absolute_percentage_error,
-            # symmetric_mean_absolute_percentage_error,
-            # kl_divergence,
-            scipy.spatial.distance.jensenshannon,
-            recalculate_profiles=True,
-            visualize_best=True,
-            verbose=False
-        )
+        for ds_name, ds_config in DATASETS.items():
+            best_p, best_s, all_res = run_grid_search_parallel(
+                ds_name, 
+                ds_config, 
+                combinations,
+                metric,
+                recalculate_profiles=True,
+                visualize_best=False,
+                verbose=False,
+                result_dir=result_dir
+            )
