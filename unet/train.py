@@ -1,9 +1,9 @@
 from model import ResidualUNet
-from loss import profile_1d_loss, CombinedLoss
+from loss import CombinedLoss
 from data import *
 from eval import evaluate, evaluate_profile1d
 from plot import create_profile_img
-from torch.utils.data import random_split, DataLoader
+from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -30,134 +30,27 @@ torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-def init_old_data(dataset_dir, batch_size, seed=seed):
-    # Dataset & DataLoader
-    dataset = PreprocessedDataset(
-        os.path.join(dataset_dir, "x_input.h5"),
-        os.path.join(dataset_dir, "x_target.h5")
+def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
+                 include_profiles = False, shuffle_val=False, same_key_batch=False):
+    train_dataset = STEMDataset(
+        dataset_dir,
+        "train.h5",
+        "train_target.h5" if include_targets else None,
+        scale_factor,
+        include_profiles
+    )
+    val_dataset = STEMDataset(
+        dataset_dir,
+        "val.h5",
+        "val_target.h5" if include_targets else None,
+        scale_factor,
+        include_profiles
     )
 
-    # Define split fractions
-    train_frac = 0.7
-    val_frac = 0.15
-    total_len = len(dataset)
-
-    train_len = int(train_frac * total_len)
-    val_len = int(val_frac * total_len)
-    test_len = total_len - train_len - val_len  # make sure all samples are included
-    assert total_len == test_len + val_len + train_len
-
-    # Split dataset
-    train_dataset, val_dataset, test_dataset =  random_split(
-        dataset,
-        [train_len, val_len, test_len],
-        generator=torch.Generator().manual_seed(seed)  # ensures reproducibility
-    )
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,   # shuffle training
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,  # no need to shuffle
-        num_workers=2,
-        pin_memory=True,
-        persistent_workers=True
-    )
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=2,
-        pin_memory=True,
-        persistent_workers=True
-    )
-
-    return train_loader, val_loader, test_loader
-
-def init_preprocessed(dataset_dir, batch_size, scale_factor=None):
-    train_dataset = PreprocessedDataset(
-        os.path.join(dataset_dir, "train.h5"),
-        os.path.join(dataset_dir, "train_target.h5"),
-        scale_factor
-    )
-    val_dataset = PreprocessedDataset(
-        os.path.join(dataset_dir, "val.h5"),
-        os.path.join(dataset_dir, "val_target.h5"),
-        scale_factor
-    )
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=6,
-        pin_memory=True,
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True,
-    )
-
-    return train_loader, val_loader
-
-
-def init_augmented(dataset_dir, batch_size, shuffle_val=False, resized=False):
-    if resized:
-        train_dataset = ResizedAugmentedDataset(os.path.join(dataset_dir, "train.h5"))
-        val_dataset = ResizedAugmentedDataset(os.path.join(dataset_dir, "val.h5"))
+    if same_key_batch:
+        train_sampler = SameKeyBatchSampler(train_dataset.index_map, batch_size, shuffle=True)
     else:
-        train_dataset = AugmentedDataset(os.path.join(dataset_dir, "train.h5"))
-        val_dataset = AugmentedDataset(os.path.join(dataset_dir, "val.h5"))
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=10,
-        pin_memory=True,
-        persistent_workers=True,
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=shuffle_val,
-        num_workers=6,
-        pin_memory=True,
-        persistent_workers=True,
-    )
-
-    return train_loader, val_loader
-
-def init_profile1d(dataset_dir, batch_size, scale_factor, include_targets=False, shuffle_val=False):
-    train_dataset = Profile1DDataset(
-        os.path.join(dataset_dir, "train.h5"),
-        os.path.join(dataset_dir),
-        scale_factor,
-        os.path.join(dataset_dir, "train_target.h5") if include_targets else None
-    )
-    val_dataset = Profile1DDataset(
-        os.path.join(dataset_dir, "val.h5"),
-        os.path.join(dataset_dir),
-        scale_factor,
-        os.path.join(dataset_dir, "val_target.h5") if include_targets else None
-    )
-
-    train_sampler = SameKeyBatchSampler(train_dataset.index_map, batch_size, shuffle=True)
+        train_sampler = None
     train_loader = DataLoader(
         train_dataset,
         num_workers=6,
@@ -166,10 +59,13 @@ def init_profile1d(dataset_dir, batch_size, scale_factor, include_targets=False,
         batch_sampler=train_sampler
     )
 
-    val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size, shuffle=shuffle_val)
+    if same_key_batch:
+        val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size, shuffle=shuffle_val)
+    else:
+        train_sampler = None
     val_loader = DataLoader(
         val_dataset,
-        num_workers=3,
+        num_workers=4,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=val_sampler
@@ -206,6 +102,7 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     dataset_dir = config['dataset_dir']
     dataset_type = config['dataset_type']
+    same_dataset_batch = config['same_dataset_batch']
     scale_factor = config['scale_factor']
     profile_scale = config['profile_scale']
     lr = config['lr']
@@ -219,18 +116,26 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     # Initialize dataset
     # -------------------------------
-    if dataset_type == "old":
-        train_loader, val_loader, test_loader = init_old_data(dataset_dir, batch_size)
-    elif dataset_type == "preprocessed":
-        train_loader, val_loader = init_preprocessed(dataset_dir, batch_size, scale_factor)
-    elif dataset_type == "augmented":
-        train_loader, val_loader = init_augmented(dataset_dir, batch_size)
-    elif dataset_type == "resized_augmented":
-        train_loader, val_loader = init_augmented(dataset_dir, batch_size, resized=True)
+    if dataset_type == "preprocessed":
+        train_loader, val_loader = init_dataset(dataset_dir, batch_size, scale_factor)
     elif dataset_type == "profile":
-        train_loader, val_loader = init_profile1d(dataset_dir, batch_size, scale_factor)
+        train_loader, val_loader = init_dataset(
+            dataset_dir, 
+            batch_size, 
+            scale_factor,
+            include_targets=False,
+            include_profiles=True,
+            same_key_batch=same_dataset_batch
+        )
     elif dataset_type == "preprocessed+profile":
-        train_loader, val_loader = init_profile1d(dataset_dir, batch_size, scale_factor, include_targets=True)
+        train_loader, val_loader = init_dataset(
+            dataset_dir, 
+            batch_size, 
+            scale_factor,
+            include_targets=True,
+            include_profiles=True,
+            same_key_batch=same_dataset_batch
+        )
 
     # -------------------------------
     # Prepare experiment directory
@@ -259,9 +164,9 @@ def train(config: dict, experiment_name=None):
     # Loss & optimizer
     # -------------------------------
     if dataset_type == "profile":
-        criterion = profile_1d_loss
+        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_dataset_batch, include_2d=False)
     elif dataset_type == "preprocessed+profile":
-        criterion = CombinedLoss(model_params["logspace"], profile_scale)
+        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_dataset_batch, include_2d=True)
     else:
         criterion = nn.HuberLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -294,21 +199,25 @@ def train(config: dict, experiment_name=None):
             x = x.to(device, non_blocking=True)
             if isinstance(y, torch.Tensor):
                 y = y.to(device, non_blocking=True)
+            else:
+                y = [z.to(device, non_blocking=True) for z in y]
 
             optimizer.zero_grad()
 
             clean_pred = model(x)
 
             if dataset_type == "preprocessed+profile":
-                if epoch < 5:
+                if epoch < 10:
                     a = 1
                     b = -1
                 else:
-                    a = float(np.interp(epoch, [0, num_epochs], [1, 0.1]))
+                    a = float(np.interp(epoch, [9, num_epochs], [1, 0.5]))
                     b = 1 - a
                 loss = criterion(clean_pred, y, a, b)
+            elif dataset_type == "profile":
+                loss = criterion(x, y)
             else:
-                if model_params["logspace"]:
+                if model.logspace:
                     loss = criterion(clean_pred, torch.log1p(y))
                 else:
                     loss = criterion(clean_pred, y)
@@ -436,7 +345,9 @@ if __name__ == "__main__":
     config = {
         "dataset_dir": "dataset1.1",
         # Possible dataset_type values: "preprocessed", "profile", "preprocessed+profile"
-        "dataset_type": "preprocessed",
+        "dataset_type": "preprocessed+profile",
+        # Does nothing for "preprocessed"
+        "same_dataset_batch": True,
         "scale_factor": 1,
         "profile_scale": 1,
         "lr": 3e-3,
@@ -446,7 +357,7 @@ if __name__ == "__main__":
         "batch_size": 32,
         "model_params": {
             "in_channels": 1,
-            "base_channels": 1,
+            "base_channels": 2,
             "normalize": False,
             "logspace": True,
             "predict_background": True
@@ -462,5 +373,5 @@ if __name__ == "__main__":
     # exp_id = train(config, "combined_g2x_precalc_cal_const")
     # exp_id = train(config, "combined_g1x_bchannels2")
     # exp_id = train(config, "combined_reduced_channels_logspace_profile2x")
-    exp_id = train(config, "preprocessed_bc1_logspace")
+    exp_id = train(config, "combined_bc4_logspace_start10_end0.5")
     
