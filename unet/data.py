@@ -68,16 +68,23 @@ class STEMDataset(Dataset):
 
         self.profiles = {}
         self.centers = {}
+        max_prof_len = 0
         for key in sorted(f_in.keys()):
             profile_fname = key + (f"x{profile_scale}" if profile_scale != 1 else "")
             p = np.loadtxt(dataset_dir / "target_profiles" / profile_fname)
             self.profiles[key] = p.astype(np.float32)
+            max_prof_len = max(max_prof_len, len(p))
 
             db_path = dataset_dir / "dbase" / f"db_{self.input_h5.stem}_{key}"
             db = sd.dbase.read_database(db_path)
             c = db[["Xcenter", "Ycenter"]].to_numpy()
             c /= 4 # Centers are for 4x images
             self.centers[key] = c
+
+        # Pad profiles to allow batching
+        for key in sorted(f_in.keys()):
+            pad_width = max_prof_len - len(self.profiles[key])
+            self.profiles[key] = np.pad(self.profiles[key], (0, pad_width))
 
 
     def __len__(self):

@@ -14,9 +14,11 @@ wheels/
 DATA.STEMDIFF/
 unet/dataset*/
 unet/runs/
+unet/runs2/
 
-# Cache
+# Grid search
 grid_search_cache/
+grid_search_results/
 
 # Models
 unet/model*.onnx

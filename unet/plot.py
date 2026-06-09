@@ -10,10 +10,12 @@ def create_profile_img(x, y, individual_profiles, rad_dist, profile_scale):
     x, y = prepare_profiles(x, y, individual_profiles, rad_dist, profile_scale)
 
     # 2. Create the matplotlib figure
-    fig, ax = plt.subplots()
-    ax.plot(y, label="target")
-    ax.plot(x, label="result")
-    ax.set_title("1D profiles")
+    fig, ax = plt.subplots(figsize=(8, 3), dpi=300)
+    ax.plot(y.squeeze(), label="Target")
+    ax.plot(x.squeeze(), label="NN output")
+    ax.set_ylabel("Intensity")
+    ax.set_xlabel("Pixels")
+    ax.legend()
 
     # 3. Render the plot to an image buffer
     buf = io.BytesIO()

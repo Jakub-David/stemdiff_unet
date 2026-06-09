@@ -52,7 +52,10 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
         clean_pred = model(x)
 
         if isinstance(criterion, CombinedLoss):
-            loss, loss_2d, loss_1d = criterion(clean_pred, t, a, b, return_parts=True)
+            if model.logspace:
+                loss, loss_2d, loss_1d = criterion(clean_pred.log1p(), t, a, b, return_parts=True)
+            else:
+                loss, loss_2d, loss_1d = criterion(clean_pred, t, a, b, return_parts=True)
             total_loss += loss.item()
             if isinstance(loss_1d, torch.Tensor):
                 total_loss_1d += loss_1d.item()
@@ -60,7 +63,7 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
                 total_loss_2d += loss_2d.item()
         elif criterion is not None:
             if model.logspace:
-                loss = criterion(torch.log1p(clean_pred), torch.log1p(y))
+                loss = criterion(clean_pred.log1p(), y.log1p())
             else:
                 loss = criterion(clean_pred, y)
             total_loss += loss.item()

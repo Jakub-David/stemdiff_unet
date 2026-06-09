@@ -53,6 +53,7 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
         train_sampler = None
     train_loader = DataLoader(
         train_dataset,
+        batch_size=batch_size,
         num_workers=6,
         pin_memory=True,
         persistent_workers=True,
@@ -62,9 +63,10 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
     if same_key_batch:
         val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size, shuffle=shuffle_val)
     else:
-        train_sampler = None
+        val_sampler = None
     val_loader = DataLoader(
         val_dataset,
+        batch_size=batch_size,
         num_workers=4,
         pin_memory=True,
         persistent_workers=True,
@@ -98,7 +100,8 @@ def log_images(writer, dataset_type, global_step, examples, log_static, epoch_st
 
         if "profile" in dataset_type:
             if individual_profiles:
-                clean = clean[0]
+                clean = clean[0][None] # add batch dim back
+                p = [z[0][None] for z in p]
             writer.add_image(
                 f"{epoch_str}Profiles/Profile{i}", 
                 create_profile_img(clean, p, individual_profiles, rad_dist, profile_scale), 
@@ -218,12 +221,8 @@ def train(config: dict, experiment_name=None):
             clean_pred = model(x)
 
             if dataset_type == "preprocessed+profile":
-                if epoch < 10:
-                    a = 1
-                    b = -1
-                else:
-                    a = float(np.interp(epoch, [9, num_epochs], [1, 0.5]))
-                    b = 1 - a
+                a = float(np.interp(epoch, [0, num_epochs], [1, 0.7]))
+                b = 1 - a
                 loss = criterion(clean_pred, y, a, b)
             elif dataset_type == "profile":
                 loss = criterion(x, y)
@@ -237,7 +236,7 @@ def train(config: dict, experiment_name=None):
             optimizer.step()
 
             epoch_loss += loss.item()
-            if global_step % 10 == 0:
+            if global_step % 50 == 0:
                 pbar.set_description(f"Loss: {loss.item():.4f}")
 
             # -------------------------------
@@ -337,7 +336,7 @@ if __name__ == "__main__":
         # Possible dataset_type values: "preprocessed", "profile", "preprocessed+profile"
         "dataset_type": "preprocessed+profile",
         # Does nothing for "preprocessed"
-        "same_dataset_batch": True,
+        "same_dataset_batch": False,
         "scale_factor": 1,
         "profile_scale": 1,
         "lr": 3e-3,
@@ -354,5 +353,5 @@ if __name__ == "__main__":
         },
     }
 
-    exp_id = train(config, "combined_bc2_logspace_start10_end0.5")
+    exp_id = train(config, "combined_bc2_logspace_end0.7_individual")
     

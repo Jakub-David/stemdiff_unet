@@ -9,7 +9,7 @@ import scipy.spatial.distance
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
-import datetime
+from datetime import datetime
 
 from examples.sum.sum_fn import *
 import ediff as ed
@@ -108,10 +108,10 @@ DATASETS = {
 # Calibration constants * upscale factor
 CALIBRATION_CONSTANTS = {
     "au": 7.402490460157548 * 4,
-    "feo": 7.958597562130453 * 4,
-    "gdf3": 7.316716257743526 * 4,
-    "laf3": 7.918715861572124 * 4,
-    "tbf3": 7.36544381676556 * 4
+    "feo": 8.038987436495407 * 4,
+    "gdf3": 7.452211003257295 * 4,
+    "laf3": 7.99951908464939 * 4,
+    "tbf3": 7.50184092448344 * 4
 }
 
 # Define the grid search space for bkgp
@@ -195,7 +195,7 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
 
 def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric, 
                              recalculate_profiles=False, visualize_best=True,
-                             verbose=True, result_dir=None):
+                             verbose=True, result_dir=None, profile_sigma=None):
     print(f"\n=== Starting Parallel Grid Search for Dataset: {dataset_name} ===")
 
     # Load base dataset data once
@@ -212,13 +212,12 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
         structure=ds_config["cif_path"],
         wavelength=0.71,
         two_theta_range=(5, 100),
-        peak_profile_sigma=0.1,
+        peak_profile_sigma=profile_sigma or 0.1,
     )
     
-    # Replace XRD diff if provided
-    xrd_path = ds_config.get("xrd_path")
-    if xrd_path is not None:
-        XRD.diffractogram = pd.read_csv(xrd_path, sep=r'\s+')
+    # Replace XRD diff with altered profile
+    if profile_sigma is None:
+        XRD.diffractogram = pd.read_csv(ds_config["xrd_path"], sep=r'\s+')
 
     # Save dataset name to avoid another parameter
     XRD.dataset_name = dataset_name
@@ -294,11 +293,11 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
         with open(result_dir / f"{dataset_name}_eld", "wb") as f:
             pickle.dump(best_prof, f)
 
-        plot_fname = f"{dataset_name}.png"
+        plot_fname = result_dir / f"{dataset_name}.png"
 
     # --- STEP 5: Optional Visualization ---
     if best_prof is not None:
-        print("Visualizing best result...")
+        plt.figure(figsize=(8, 3))
         ed.io.Plots.plot_multiple_eld_and_xrd(
             best_prof.diffractogram,
             XRD.diffractogram,
@@ -321,24 +320,27 @@ if __name__ == "__main__":
         sklearn.metrics.mean_absolute_error,
         sklearn.metrics.mean_absolute_percentage_error,
         symmetric_mean_absolute_percentage_error,
+        hellinger_distance,
         kl_divergence,
         scipy.spatial.distance.jensenshannon,
     ]
     
-    run_name = ""
-    for metric in metrics:
-        result_dir = Path("grid_search_results") / \
-            f"{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}_{metric.__name__}{run_name}"
-        result_dir.mkdir()
+    for profile_sigma in [None, 0.05, 0.1, 0.2, 0.3]:
+        run_name = f"_psigma{profile_sigma}"
+        for metric in metrics:
+            result_dir = Path("grid_search_results") / \
+                f"{metric.__name__}{run_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}"
+            result_dir.mkdir()
 
-        for ds_name, ds_config in DATASETS.items():
-            best_p, best_s, all_res = run_grid_search_parallel(
-                ds_name, 
-                ds_config, 
-                combinations,
-                metric,
-                recalculate_profiles=True,
-                visualize_best=False,
-                verbose=False,
-                result_dir=result_dir
-            )
+            for ds_name, ds_config in DATASETS.items():
+                best_p, best_s, all_res = run_grid_search_parallel(
+                    ds_name, 
+                    ds_config, 
+                    combinations,
+                    metric,
+                    recalculate_profiles=True,
+                    visualize_best=False,
+                    verbose=False,
+                    result_dir=result_dir,
+                    profile_sigma=profile_sigma
+                )

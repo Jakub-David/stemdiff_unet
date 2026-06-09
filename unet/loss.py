@@ -43,7 +43,7 @@ class CombinedLoss(torch.nn.Module):
 
 def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_scale=1) -> tuple[torch.Tensor, torch.Tensor]:
     target_profile, center_sizes, centers = target
-    centered_input2d = center_images(input2d, centers).squeeze()
+    centered_input2d = center_images(input2d, centers).squeeze(1)
 
     if individual_profiles:
         # 1. Batch Interpolation: (B, H, W) -> (B, 1, H, W) -> Interpolate -> (B, H_new, W_new)
