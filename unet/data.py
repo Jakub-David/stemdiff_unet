@@ -28,7 +28,7 @@ class STEMDataset(Dataset):
         self.input_h5 = dataset_dir / input_fname
         self.target_h5 = dataset_dir / target_fname if target_fname is not None else None
         self.scale_factor = scale_factor
-        self.index_map = dataset_dir
+        self.index_map = []
         self.include_profiles = include_profiles
 
         f_in = h5py.File(self.input_h5, 'r')
@@ -71,7 +71,7 @@ class STEMDataset(Dataset):
         for key in sorted(f_in.keys()):
             profile_fname = key + (f"x{profile_scale}" if profile_scale != 1 else "")
             p = np.loadtxt(dataset_dir / "target_profiles" / profile_fname)
-            self.profiles[key] = p
+            self.profiles[key] = p.astype(np.float32)
 
             db_path = dataset_dir / "dbase" / f"db_{self.input_h5.stem}_{key}"
             db = sd.dbase.read_database(db_path)

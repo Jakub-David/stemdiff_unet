@@ -5,9 +5,9 @@ import io
 from loss import prepare_profiles
 
 
-def create_profile_img(x, y):
+def create_profile_img(x, y, individual_profiles, rad_dist, profile_scale):
     # 1. Create profiles
-    x, y = prepare_profiles(x, y)
+    x, y = prepare_profiles(x, y, individual_profiles, rad_dist, profile_scale)
 
     # 2. Create the matplotlib figure
     fig, ax = plt.subplots()

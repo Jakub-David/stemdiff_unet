@@ -12,7 +12,7 @@ class CombinedLoss(torch.nn.Module):
         self.rad_dist = RadialDistribution(256 * profile_scale, 256 * profile_scale, device)
         self.include_2d = include_2d
 
-    def forward(self, x: torch.Tensor, y, a=1, b=1) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
         if self.include_2d:
             p = y[1:]
             y = y[0]
@@ -36,7 +36,10 @@ class CombinedLoss(torch.nn.Module):
         else:
             loss_1d = 0
 
-        return a * loss_2d + b * loss_1d
+        if return_parts:
+            return a * loss_2d + b * loss_1d, loss_2d, loss_1d
+        else:
+            return a * loss_2d + b * loss_1d
 
 def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_scale=1) -> tuple[torch.Tensor, torch.Tensor]:
     target_profile, center_sizes, centers = target

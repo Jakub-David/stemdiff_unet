@@ -1,7 +1,7 @@
 from model import ResidualUNet
-from loss import CombinedLoss
+from loss import CombinedLoss, RadialDistribution
 from data import *
-from eval import evaluate, evaluate_profile1d
+from eval import evaluate
 from plot import create_profile_img
 from torch.utils.data import DataLoader
 import torch
@@ -73,27 +73,37 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
 
     return train_loader, val_loader
 
-def log_images(writer, dataset_type, global_step, examples, log_static, epoch_str):
+def log_images(writer, dataset_type, global_step, examples, log_static, epoch_str, 
+               individual_profiles, profile_scale):
     for i in range(len(examples)):
         x, clean, y = examples[i]
         if dataset_type == "preprocessed+profile":
-            y, p = y
+            p = y[1:]
+            y = y[0]
         else:
             p = y
+
+        rad_dist = RadialDistribution(256 * profile_scale, 256 * profile_scale, x.device)
         
         # log first four images in a batch
         clean_log = clean[:4]
-        writer.add_images(f"{epoch_str}/Prediction{i}", clean_log, global_step)
+        writer.add_images(f"{epoch_str}Predictions/Prediction{i}", clean_log, global_step)
 
         if log_static:
             x_log = x[:4] 
-            writer.add_images(f"Static/Input{i}", x_log, global_step)
+            writer.add_images(f"StaticInputs/Input{i}", x_log, global_step)
             if dataset_type != "profile":
                 y_log = y[:4]
-                writer.add_images(f"Static/Target{i}", y_log, global_step)
+                writer.add_images(f"StaticTargets/Target{i}", y_log, global_step)
 
         if "profile" in dataset_type:
-            writer.add_image(f"{epoch_str}/Profile{i}", create_profile_img(clean.detach().cpu(), p), global_step)
+            if individual_profiles:
+                clean = clean[0]
+            writer.add_image(
+                f"{epoch_str}Profiles/Profile{i}", 
+                create_profile_img(clean, p, individual_profiles, rad_dist, profile_scale), 
+                global_step
+            )
 
 
 def train(config: dict, experiment_name=None):
@@ -144,7 +154,7 @@ def train(config: dict, experiment_name=None):
     if experiment_name != None:
         experiment_id += "_" + experiment_name
 
-    checkpoint_dir = f"runs/{experiment_id}"
+    checkpoint_dir = f"runs2/{experiment_id}"
     os.makedirs(checkpoint_dir, exist_ok=True)
     with open(os.path.join(checkpoint_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=1)
@@ -155,7 +165,7 @@ def train(config: dict, experiment_name=None):
     ckpt = config.get("ckpt")
     ckpt_epoch = config.get("ckpt_epoch", "")
     if ckpt != None:
-        model, ckpt_config = ResidualUNet.load("runs/", f"{ckpt}*/*{ckpt_epoch}.pt")
+        model, ckpt_config = ResidualUNet.load("runs2/", f"{ckpt}*/*{ckpt_epoch}.pt")
         model = model.to(device)
     else:
         model = ResidualUNet(**model_params).to(device)
@@ -177,10 +187,13 @@ def train(config: dict, experiment_name=None):
         eta_min=min_lr
     )
 
+    # Loss weights
+    a, b = 1, 1
+
     # -------------------------------
     # TensorBoard
     # -------------------------------
-    writer = SummaryWriter(f"runs/{experiment_id}")
+    writer = SummaryWriter(f"runs2/{experiment_id}")
     inputs_targets_logged = False
 
     print(f"Starting experiment: {experiment_id}")
@@ -189,8 +202,6 @@ def train(config: dict, experiment_name=None):
     # Training loop
     # -------------------------------
     global_step = 0
-    val_avg_loss = 0
-    val_avg_psnr = 0
     for epoch in (pbar := tqdm(range(num_epochs))):
         model.train()
         epoch_loss = 0.0
@@ -232,30 +243,29 @@ def train(config: dict, experiment_name=None):
             # -------------------------------
             # Logging during epoch
             # -------------------------------
+            writer.add_scalar("Train/loss", loss.item(), global_step)
             if log_interval > 0 and global_step % log_interval == 0:
-                if dataset_type == "profile":
-                    val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                        model, val_loader, device, criterion, return_every=5
-                    )
-                else:
-                    val_avg_loss, val_avg_psnr, examples = evaluate(
-                        model, val_loader, device, criterion, return_every=5
-                    )
+                eval_metrics, examples = evaluate(
+                    model, val_loader, device, criterion, return_every=5, a=a, b=b
+                )
 
+                for n, v in eval_metrics.items():
+                    writer.add_scalar(f"DuringEpoch/val_{n}", v, global_step)
                 
-                writer.add_scalar("Loss/train", loss.item(), global_step)
-                writer.add_scalar("AvgLoss/val", val_avg_loss, global_step)
-                if dataset_type == "profile":
-                    writer.add_scalar("AvgMAE/val", val_avg_mae, global_step)
-                else:
-                    writer.add_scalar("AvgPSNR/val", val_avg_psnr, global_step) 
-
                 # -------------------------------
                 # Log Images to TensorBoard
                 # -------------------------------
-                if examples is not None and len(examples) > 0:
-                    log_images(writer, dataset_type, global_step, examples, not inputs_targets_logged, "DuringEpoch")
-                    inputs_targets_logged = True
+                log_images(
+                    writer, 
+                    dataset_type, 
+                    global_step, 
+                    examples, 
+                    not inputs_targets_logged, 
+                    "DuringEpoch",
+                    not same_dataset_batch,
+                    profile_scale
+                )
+                inputs_targets_logged = True
                 
                 # Free memory
                 del examples
@@ -265,49 +275,51 @@ def train(config: dict, experiment_name=None):
         # -------------------------------
         # Log end of epoch
         # -------------------------------
+        # Avg. loss
         avg_loss = epoch_loss / len(train_loader)
-        if dataset_type == "profile":
-            val_avg_loss, val_avg_mae, examples = evaluate_profile1d(
-                model, val_loader, device, criterion, return_every=5
-            )
-        else:
-            val_avg_loss, val_avg_psnr, examples = evaluate(
-                model, val_loader, device, criterion, return_every=5
-            )
-        
-        writer.add_scalar("AvgLoss/train", avg_loss, global_step)
-        writer.add_scalar("AvgLoss/val", val_avg_loss, global_step)
-        if dataset_type == "profile":
-            writer.add_scalar("AvgMAE/val", val_avg_mae, global_step)
-        else:
-            writer.add_scalar("AvgPSNR/val", val_avg_psnr, global_step) 
+        writer.add_scalar("Train/avg_loss", avg_loss, epoch)
 
-        # -------------------------------
+        # Metrics
+        eval_metrics, examples = evaluate(
+            model, val_loader, device, criterion, return_every=5, a=a, b=b
+        )
+        
+        for n, v in eval_metrics.items():
+            writer.add_scalar(f"EndOfEpoch/val_{n}", v, epoch)
+
         # Log Images to TensorBoard
-        # -------------------------------
-        if examples is not None and len(examples) > 0:
-            log_images(writer, dataset_type, epoch, examples, not inputs_targets_logged, "EndOfEpoch")
-            inputs_targets_logged = True
+        
+        log_images(
+            writer, 
+            dataset_type, 
+            global_step, 
+            examples, 
+            not inputs_targets_logged, 
+            "EndOfEpoch",
+            not same_dataset_batch,
+            profile_scale
+        )
+        inputs_targets_logged = True
         
         # Free memory
         del examples
-                    
-        if dataset_type == "profile":
-            tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {val_avg_loss:.6f}, Avg val mea: {val_avg_mae:.6f},")
-        else:
-            tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {val_avg_loss:.6f}, Avg val psnr: {val_avg_psnr:.6f},")
+
+        # Write progress to console             
+        tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {eval_metrics["avg_loss"]:.6f}, Avg val psnr: {eval_metrics["avg_psnr"]:.6f}")
+
+        # Log loss weights
+        if dataset_type == "preprocessed+profile":
+            writer.add_scalar("Hyperparameters/WeightA", a, epoch)
+            writer.add_scalar("Hyperparameters/WeightB", b, epoch)
+        
+        # Log learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+        writer.add_scalar("Hyperparameters/LearningRate", current_lr, epoch)
 
         # -------------------------------
         # Learning rate step
         # -------------------------------
         scheduler.step()
-        current_lr = optimizer.param_groups[0]['lr']
-        writer.add_scalar("Hyperparameters/LearningRate", current_lr, epoch)
-
-        # Log loss weights
-
-        if dataset_type == "preprocessed+profile":
-            writer.add_scalar("Hyperparameters/WeightA", a, epoch)
 
         # -------------------------------
         # Checkpointing
@@ -320,30 +332,8 @@ def train(config: dict, experiment_name=None):
     return experiment_id
 
 if __name__ == "__main__":
-    # config = {
-    #     "dataset_dir": "dataset1.1",
-    #     # Possible dataset_type values: "preprocessed", "profile"
-    #     "dataset_type": "preprocessed",
-    #     "scale_factor": 1,
-    #     "lr": 3e-2,
-    #     "min_lr": 3e-5,
-    #     "num_epochs": 200,
-    #     "log_interval": -1,
-    #     "batch_size": 32,
-    #     "model_params": {
-    #         "in_channels": 1,
-    #         "base_channels": 1,
-    #         "normalize": True,
-    #         "logspace": True,
-    #         "predict_background": True
-    #     },
-    #     # "ckpt": "20260417_154943",
-    #     # "ckpt": "20260519_193326_preprocessed_gaussian_4x",
-    #     # "ckpt_epoch": 40
-    # }
-
     config = {
-        "dataset_dir": "dataset1.1",
+        "dataset_dir": "dataset_filtered",
         # Possible dataset_type values: "preprocessed", "profile", "preprocessed+profile"
         "dataset_type": "preprocessed+profile",
         # Does nothing for "preprocessed"
@@ -352,7 +342,7 @@ if __name__ == "__main__":
         "profile_scale": 1,
         "lr": 3e-3,
         "min_lr": 3e-5,
-        "num_epochs": 100,
+        "num_epochs": 60,
         "log_interval": -1,
         "batch_size": 32,
         "model_params": {
@@ -362,16 +352,7 @@ if __name__ == "__main__":
             "logspace": True,
             "predict_background": True
         },
-        # "ckpt": "20260417_154943",
-        # "ckpt": "20260520_163333_preprocessed_gaussian_2x",
-        # "ckpt_epoch": 40
     }
 
-    # Run training
-    # exp_id = train(config, "preprocessed_gaussian_1x_bchannels1_logloss_logspace")
-    # exp_id = train(config, "profile_2x_gaussian_v2")
-    # exp_id = train(config, "combined_g2x_precalc_cal_const")
-    # exp_id = train(config, "combined_g1x_bchannels2")
-    # exp_id = train(config, "combined_reduced_channels_logspace_profile2x")
-    exp_id = train(config, "combined_bc4_logspace_start10_end0.5")
+    exp_id = train(config, "combined_bc2_logspace_start10_end0.5")
     
