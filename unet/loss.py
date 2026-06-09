@@ -242,12 +242,16 @@ class RadialDistribution(torch.nn.Module):
         bin_indices = torch.round(R).long()
         valid_mask = (bin_indices >= 0) & (bin_indices < self.max_bin_idx)
         
-        # Flattened valid locations
-        self.register_buffer('valid_bins_1d', bin_indices[valid_mask])
-        self.register_buffer('valid_mask_1d', valid_mask.flatten())
+        # Cache the 1D spatial mask for flat-mapping
+        valid_mask_1d = valid_mask.flatten()
+        self.register_buffer('valid_mask_1d', valid_mask_1d)
+        
+        # Pre-expand valid_bins_1d to 2D shape (1, Num_Valid_Pixels) so it's ready to broadcast with batch size
+        valid_bins_1d = bin_indices[valid_mask].unsqueeze(0) 
+        self.register_buffer('valid_bins_1d', valid_bins_1d)
         
         # 5. Pre-calculate pixel counts per bin for a single image
-        pixel_counts = torch.bincount(self.valid_bins_1d, minlength=self.max_bin_idx)
+        pixel_counts = torch.bincount(valid_bins_1d.flatten(), minlength=self.max_bin_idx)
         self.register_buffer('pixel_counts', pixel_counts)
         
         # Create a mask for safe division (avoiding division by zero)
@@ -255,54 +259,37 @@ class RadialDistribution(torch.nn.Module):
 
     def forward(self, tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Supports both 2D tensors (H, W) and 3D tensors (B, H, W).
+        Handles both 2D (H,W) and 3D (B,H,W).
+        Everything except batch dimension expansion is entirely precomputed.
         """
-        if tensor.dim() == 2:
-            # --- Single Image Mode ---
-            valid_intensities = tensor.flatten()[self.valid_mask_1d]
-            sum_intensity = torch.bincount(self.valid_bins_1d, weights=valid_intensities, minlength=self.max_bin_idx)
-            
-            intensity = torch.where(
-                self.safe_division_mask, 
-                sum_intensity / self.pixel_counts, 
-                torch.zeros_like(sum_intensity)
-            )
-            return self.radial_distance, intensity
-
-        elif tensor.dim() == 3:
-            # --- Batch Mode (B, H, W) ---
-            b, h, w = tensor.shape
-            
-            # 1. Expand the valid mask to cover the entire batch and flatten the tensor
-            # valid_mask_batch becomes a boolean mask of shape (B * H * W)
-            valid_mask_batch = self.valid_mask_1d.repeat(b)
-            flat_tensor = tensor.flatten()
-            valid_intensities = flat_tensor[valid_mask_batch]
-            
-            # 2. Shift bin indices for each batch item so they don't overlap in bincount
-            # e.g., Batch 0 uses bins [0, max_bin), Batch 1 uses [max_bin, 2*max_bin), etc.
-            batch_offsets = torch.arange(b, device=tensor.device).view(b, 1) * self.max_bin_idx
-            
-            # Filter out the valid bins, inject the offsets, and flatten to 1D
-            # valid_bins_1d is shape (V,), batch_offsets is (B, 1). Broadcasting handles it perfectly.
-            shifted_bins = (self.valid_bins_1d + batch_offsets).flatten()
-            
-            # 3. Perform a single bincount across the entire batch
-            total_bins = b * self.max_bin_idx
-            sum_intensity_flat = torch.bincount(shifted_bins, weights=valid_intensities, minlength=total_bins)
-            
-            # 4. Reshape back to (B, max_bin_idx)
-            sum_intensity = sum_intensity_flat.view(b, self.max_bin_idx)
-            
-            # 5. Compute vectorized batch means safely using broadcasting
-            # pixel_counts is (max_bin_idx,), broadcasted to match (B, max_bin_idx)
-            intensity = torch.where(
-                self.safe_division_mask,
-                sum_intensity / self.pixel_counts,
-                torch.zeros_like(sum_intensity)
-            )
-            
-            return self.radial_distance, intensity
-        
-        else:
+        is_2d = tensor.dim() == 2
+        if is_2d:
+            tensor = tensor.unsqueeze(0)  # (1, H, W)
+        elif tensor.dim() != 3:
             raise ValueError("Input tensor must be 2D (H, W) or 3D (B, H, W)")
+
+        b = tensor.shape[0]
+
+        # 1. Flatten spatial dimensions to (B, H*W) and apply the precomputed 1D mask
+        # Advanced indexing extracts only valid spatial pixels across all batches simultaneously
+        valid_intensities = tensor.view(b, -1)[:, self.valid_mask_1d]  # Shape: (B, Num_Valid_Pixels)
+
+        # 2. Broadcast the precomputed bin indices to match the current batch size
+        # expanded_bins becomes shape: (B, Num_Valid_Pixels)
+        expanded_bins = self.valid_bins_1d.expand(b, -1)
+
+        # 3. Accumulate sums cleanly using 2D scatter_add_ along dim 1
+        sum_intensity = torch.zeros(b, self.max_bin_idx, device=tensor.device, dtype=tensor.dtype)
+        sum_intensity.scatter_add_(1, expanded_bins, valid_intensities)
+
+        # 4. Compute means safely using precomputed safe masks and pixel counts
+        intensity = torch.where(
+            self.safe_division_mask,
+            sum_intensity / self.pixel_counts,
+            torch.zeros_like(sum_intensity)
+        )
+
+        if is_2d:
+            intensity = intensity.squeeze(0)
+
+        return self.radial_distance, intensity
