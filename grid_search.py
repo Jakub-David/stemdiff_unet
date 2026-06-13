@@ -106,19 +106,21 @@ DATASETS = {
 }
 
 # Calibration constants * upscale factor
-CALIBRATION_CONSTANTS = {
-    "au": 7.402490460157548 * 4,
-    "feo": 8.038987436495407 * 4,
-    "gdf3": 7.452211003257295 * 4,
-    "laf3": 7.99951908464939 * 4,
-    "tbf3": 7.50184092448344 * 4
-}
+CALIBRATION_CONSTANTS = None
+# CALIBRATION_CONSTANTS = {
+#     "au": 7.402490460157548 * 4,
+#     "feo": 8.038987436495407 * 4,
+#     "gdf3": 7.452211003257295 * 4,
+#     "laf3": 7.99951908464939 * 4,
+#     "tbf3": 7.50184092448344 * 4
+# }
 
 # Define the grid search space for bkgp
 PARAM_GRID = {
-    "sigma": [i for i in range(1, 20, 2)] + [0.5, 0.75, 1.5, 2, 2.5, 4],
-    "thr": [i/2 for i in range(1, 10)] + list(range(5, 11)) + [11, 13, 15, 17, 20, 25],
-    "area_size": list(range(1, 6)) + [6, 8, 10, 12, 15, 20],
+    "sigma": [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15],
+    "thr": [0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6],
+    "area_size": [3, 4, 5, 6, 7, 8, 10],
+    "normalize": [True]
 }
 
 CACHE_DIR = Path("./grid_search_cache")
@@ -293,7 +295,7 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
         with open(result_dir / f"{dataset_name}_eld", "wb") as f:
             pickle.dump(best_prof, f)
 
-        plot_fname = result_dir / f"{dataset_name}.png"
+        plot_fname = result_dir / f"{dataset_name}.svg"
 
     # --- STEP 5: Optional Visualization ---
     if best_prof is not None:
@@ -325,12 +327,12 @@ if __name__ == "__main__":
         scipy.spatial.distance.jensenshannon,
     ]
     
-    for profile_sigma in [None, 0.05, 0.1, 0.2, 0.3]:
-        run_name = f"_psigma{profile_sigma}"
+    run_name = f"01_profile_sigma_0.3_default_const"
+    for profile_sigma in [None]:
         for metric in metrics:
-            result_dir = Path("grid_search_results") / \
-                f"{metric.__name__}{run_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}"
-            result_dir.mkdir()
+            result_dir = Path("grid_search_results") / run_name / \
+                f"{metric.__name__}_{datetime.now().strftime("%Y%m%d_%H%M%S")}_psigma{profile_sigma}"
+            result_dir.mkdir(parents=True)
 
             for ds_name, ds_config in DATASETS.items():
                 best_p, best_s, all_res = run_grid_search_parallel(

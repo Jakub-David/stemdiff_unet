@@ -249,7 +249,8 @@ def train(config: dict, experiment_name=None):
                 )
 
                 for n, v in eval_metrics.items():
-                    writer.add_scalar(f"DuringEpoch/val_{n}", v, global_step)
+                    if v is not None:
+                        writer.add_scalar(f"DuringEpoch/val_{n}", v, global_step)
                 
                 # -------------------------------
                 # Log Images to TensorBoard
@@ -284,7 +285,8 @@ def train(config: dict, experiment_name=None):
         )
         
         for n, v in eval_metrics.items():
-            writer.add_scalar(f"EndOfEpoch/val_{n}", v, epoch)
+            if v is not None:
+                writer.add_scalar(f"EndOfEpoch/val_{n}", v, epoch)
 
         # Log Images to TensorBoard
         
