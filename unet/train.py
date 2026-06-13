@@ -42,9 +42,9 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
     val_dataset = STEMDataset(
         dataset_dir,
         "val.h5",
-        "val_target.h5" if include_targets else None,
+        "val_target.h5",
         scale_factor,
-        include_profiles
+        True
     )
 
     if same_key_batch:
@@ -75,15 +75,12 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
 
     return train_loader, val_loader
 
-def log_images(writer, dataset_type, global_step, examples, log_static, epoch_str, 
+def log_images(writer, global_step, examples, log_static, epoch_str, 
                individual_profiles, profile_scale):
     for i in range(len(examples)):
         x, clean, y = examples[i]
-        if dataset_type == "preprocessed+profile":
-            p = y[1:]
-            y = y[0]
-        else:
-            p = y
+        p = y[1:]
+        y = y[0]
 
         rad_dist = RadialDistribution(256 * profile_scale, 256 * profile_scale, x.device)
         
@@ -94,19 +91,17 @@ def log_images(writer, dataset_type, global_step, examples, log_static, epoch_st
         if log_static:
             x_log = x[:4] 
             writer.add_images(f"StaticInputs/Input{i}", x_log, global_step)
-            if dataset_type != "profile":
-                y_log = y[:4]
-                writer.add_images(f"StaticTargets/Target{i}", y_log, global_step)
+            y_log = y[:4]
+            writer.add_images(f"StaticTargets/Target{i}", y_log, global_step)
 
-        if "profile" in dataset_type:
-            if individual_profiles:
-                clean = clean[0][None] # add batch dim back
-                p = [z[0][None] for z in p]
-            writer.add_image(
-                f"{epoch_str}Profiles/Profile{i}", 
-                create_profile_img(clean, p, individual_profiles, rad_dist, profile_scale), 
-                global_step
-            )
+        if individual_profiles:
+            clean = clean[0][None] # add batch dim back
+            p = [z[0][None] for z in p]
+        writer.add_image(
+            f"{epoch_str}Profiles/Profile{i}", 
+            create_profile_img(clean, p, individual_profiles, rad_dist, profile_scale), 
+            global_step
+        )
 
 
 def train(config: dict, experiment_name=None):
@@ -115,7 +110,7 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     dataset_dir = config['dataset_dir']
     dataset_type = config['dataset_type']
-    same_dataset_batch = config['same_dataset_batch']
+    same_sample_batch = config['same_sample_batch']
     scale_factor = config['scale_factor']
     profile_scale = config['profile_scale']
     lr = config['lr']
@@ -129,25 +124,25 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     # Initialize dataset
     # -------------------------------
-    if dataset_type == "preprocessed":
+    if dataset_type == "2D":
         train_loader, val_loader = init_dataset(dataset_dir, batch_size, scale_factor)
-    elif dataset_type == "profile":
+    elif dataset_type == "1D":
         train_loader, val_loader = init_dataset(
             dataset_dir, 
             batch_size, 
             scale_factor,
             include_targets=False,
             include_profiles=True,
-            same_key_batch=same_dataset_batch
+            same_key_batch=same_sample_batch
         )
-    elif dataset_type == "preprocessed+profile":
+    elif dataset_type == "2D+1D":
         train_loader, val_loader = init_dataset(
             dataset_dir, 
             batch_size, 
             scale_factor,
             include_targets=True,
             include_profiles=True,
-            same_key_batch=same_dataset_batch
+            same_key_batch=same_sample_batch
         )
 
     # -------------------------------
@@ -176,10 +171,10 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     # Loss & optimizer
     # -------------------------------
-    if dataset_type == "profile":
-        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_dataset_batch, include_2d=False)
-    elif dataset_type == "preprocessed+profile":
-        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_dataset_batch, include_2d=True)
+    if dataset_type == "1D":
+        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_sample_batch, include_2d=False)
+    elif dataset_type == "2D+1D":
+        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_sample_batch, include_2d=True)
     else:
         criterion = nn.HuberLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -220,11 +215,11 @@ def train(config: dict, experiment_name=None):
 
             clean_pred = model(x)
 
-            if dataset_type == "preprocessed+profile":
+            if dataset_type == "2D+1D":
                 a = float(np.interp(epoch, [0, num_epochs], [1, 0.7]))
                 b = 1 - a
                 loss = criterion(clean_pred, y, a, b)
-            elif dataset_type == "profile":
+            elif dataset_type == "1D":
                 loss = criterion(x, y)
             else:
                 if model.logspace:
@@ -257,12 +252,11 @@ def train(config: dict, experiment_name=None):
                 # -------------------------------
                 log_images(
                     writer, 
-                    dataset_type, 
                     global_step, 
                     examples, 
                     not inputs_targets_logged, 
                     "DuringEpoch",
-                    not same_dataset_batch,
+                    (not same_sample_batch) and dataset_type != "2D",
                     profile_scale
                 )
                 inputs_targets_logged = True
@@ -291,13 +285,12 @@ def train(config: dict, experiment_name=None):
         # Log Images to TensorBoard
         
         log_images(
-            writer, 
-            dataset_type, 
+            writer,  
             global_step, 
             examples, 
             not inputs_targets_logged, 
             "EndOfEpoch",
-            not same_dataset_batch,
+            (not same_sample_batch) and dataset_type != "2D",
             profile_scale
         )
         inputs_targets_logged = True
@@ -309,7 +302,7 @@ def train(config: dict, experiment_name=None):
         tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {eval_metrics["avg_loss"]:.6f}, Avg val psnr: {eval_metrics["avg_psnr"]:.6f}")
 
         # Log loss weights
-        if dataset_type == "preprocessed+profile":
+        if dataset_type == "2D+1D":
             writer.add_scalar("Hyperparameters/WeightA", a, epoch)
             writer.add_scalar("Hyperparameters/WeightB", b, epoch)
         
@@ -334,26 +327,44 @@ def train(config: dict, experiment_name=None):
 
 if __name__ == "__main__":
     config = {
-        "dataset_dir": "dataset_filtered",
-        # Possible dataset_type values: "preprocessed", "profile", "preprocessed+profile"
-        "dataset_type": "preprocessed+profile",
-        # Does nothing for "preprocessed"
-        "same_dataset_batch": False,
+        # Directory containing 
+        "dataset_dir": "dataset",
+        # Possible dataset_type values: "2D", "1D", "2D+1D"
+        "dataset_type": "2D",
+        # Does nothing for "2D"
+        "same_sample_batch": False,
+        # Rescale input images and 2D targets
         "scale_factor": 1,
+        # Scale for 1d targets and rescale nn outputs for 1d profile calculation
+        # For "2D" dataset only used in logging
         "profile_scale": 1,
+        # Initial learning rate
         "lr": 3e-3,
+        # Final learning rate (cosine decay)
         "min_lr": 3e-5,
-        "num_epochs": 60,
+        # Number of training epochs
+        "num_epochs": 100,
+        # Log every n steps, n = -1 no logging
+        # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
+        # Batch size
         "batch_size": 32,
+        # Parameters for model
         "model_params": {
+            # Number of channels of input data, should be 1
             "in_channels": 1,
+            # Number of channels on the first level of unet
+            # Level n has base_channels * 2^n channels
             "base_channels": 2,
+            # Normalize input (output is denormalized)
             "normalize": False,
+            # Network inputs is log(input + 1), done before normalization
             "logspace": True,
+            # If true, clean = input - output;
+            # otherwise, clean = output
             "predict_background": True
         },
     }
 
-    exp_id = train(config, "combined_bc2_logspace_end0.7_individual")
+    exp_id = train(config, "preprocessed_bc2_logspace")
     
