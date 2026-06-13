@@ -63,7 +63,11 @@ names = [
 ]
 
 paths = list(map(Path, paths))
-output_dir = Path("unet/dataset1.1/")
+output_dir = Path("unet/dataset/")
+dbase_dir = output_dir / "dbase"
+
+output_dir.mkdir(exist_ok=True)
+dbase_dir.mkdir(exist_ok=True)
 
 train = {}
 val = {}
@@ -97,9 +101,9 @@ for p, n in zip(paths, names):
     print(n, "test:", test[n].shape)
     print()
 
-    stemdiff.dbase.save_database(df_train, output_dir / f"db_train_{n}")
-    stemdiff.dbase.save_database(df_val, output_dir / f"db_val_{n}")
-    stemdiff.dbase.save_database(df_test, output_dir / f"db_test_{n}")
+    stemdiff.dbase.save_database(df_train, output_dir / "dbase" / f"db_train_{n}")
+    stemdiff.dbase.save_database(df_val, output_dir / "dbase" / f"db_val_{n}")
+    stemdiff.dbase.save_database(df_test, output_dir / "dbase" / f"db_test_{n}")
 
 save_h5(train, output_dir / "train.h5")
 save_h5(val, output_dir / "val.h5")

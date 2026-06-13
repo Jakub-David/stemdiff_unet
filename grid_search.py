@@ -56,50 +56,50 @@ DATASETS = {
     "au": {
         "path": DATA_DIR / "1_AU/EX1.AU/DATA",
         "cif_path": "DATA.STEMDIFF/cif/au_9008463.cif",
-        "xrd_path": "unet/dataset1.1/au",
+        "xrd_path": "unet/dataset/au",
         "xrange": (55, 800),
         "xrd_range": None,
-        "db_path": "unet/dataset1.1/dbase/",
+        "db_path": "unet/dataset/dbase/",
         "db_file": "db_train_au",
         "filter_count": 100,
     },
     "tbf3": {
         "path": DATA_DIR / "2_TBF3/VZ2.TBF3.R2",
         "cif_path": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
-        "xrd_path": "unet/dataset1.1/tbf3",
+        "xrd_path": "unet/dataset/tbf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.9),
-        "db_path": "unet/dataset1.1/dbase/",
+        "db_path": "unet/dataset/dbase/",
         "db_file": "db_train_tbf3",
         "filter_count": 100,
     },
     "feo": {
         "path": DATA_DIR / "3_FEO_PURE/FeO-Pure_Cimc",
         "cif_path": "DATA.STEMDIFF/cif/Fe3O4.cif",
-        "xrd_path": "unet/dataset1.1/feo",
+        "xrd_path": "unet/dataset/feo",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
-        "db_path": "unet/dataset1.1/dbase/",
+        "db_path": "unet/dataset/dbase/",
         "db_file": "db_train_feo",
         "filter_count": 100,
     },
     "laf3": {
         "path": DATA_DIR / "4_MARUSKA_LAF3/D_MARUSKA_C214",
         "cif_path": "DATA.STEMDIFF/cif/laf3_9008114.cif",
-        "xrd_path": "unet/dataset1.1/laf3",
+        "xrd_path": "unet/dataset/laf3",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
-        "db_path": "unet/dataset1.1/dbase/",
+        "db_path": "unet/dataset/dbase/",
         "db_file": "db_train_laf3",
         "filter_count": 100,
     },
     "gdf3": {
         "path": DATA_DIR / "X1_GDF3/VZ2.GDF3.R2",
         "cif_path": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
-        "xrd_path": "unet/dataset1.1/gdf3",
+        "xrd_path": "unet/dataset/gdf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.9),
-        "db_path": "unet/dataset1.1/dbase/",
+        "db_path": "unet/dataset/dbase/",
         "db_file": "db_train_gdf3",
         "filter_count": 100,
     },
@@ -327,7 +327,7 @@ if __name__ == "__main__":
         scipy.spatial.distance.jensenshannon,
     ]
     
-    run_name = f"01_profile_sigma_0.3_default_const"
+    run_name = f"01_profile_sigma_0.2_default_const"
     for profile_sigma in [None]:
         for metric in metrics:
             result_dir = Path("grid_search_results") / run_name / \
