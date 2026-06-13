@@ -85,14 +85,15 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
 
         n_batches += 1
 
-    avg_loss = total_loss / n_batches if criterion is not None else None
-    avg_psnr = total_psnr / n_batches if y is not None else None
-    avg_loss_1d = total_loss_1d / n_batches if isinstance(criterion, CombinedLoss) else None
-    avg_loss_2d = total_loss_2d / n_batches if isinstance(criterion, CombinedLoss) else None
+    results = {}
+    if criterion is not None:
+        results["avg_loss"] = total_loss / n_batches
+    if y is not None:
+        results["avg_psnr"] = total_psnr / n_batches 
+    if isinstance(criterion, CombinedLoss):
+        if criterion.loss_1d is not None:
+            results[f"avg_1d_{criterion.loss_1d.__class__.__name__}"] = total_loss_1d / n_batches 
+        if criterion.loss_2d is not None:
+            results[f"avg_2d_{criterion.loss_2d.__class__.__name__}"] = total_loss_2d / n_batches 
 
-    return {
-        "avg_loss": avg_loss,
-        "avg_psnr": avg_psnr,
-        "avg_loss_1d": avg_loss_1d,
-        "avg_loss_2d": avg_loss_2d
-    }, examples
+    return results, examples

@@ -4,35 +4,37 @@ import numpy as np
 import ediff
 
 class CombinedLoss(torch.nn.Module):
-    def __init__(self, device, logspace=False, profile_scale=1, individual_profiles=False, include_2d=True):
+    def __init__(self, device, logspace=False, profile_scale=1, individual_profiles=False, 
+                 loss_1d=None, loss_2d=None):
         super().__init__()
         self.logspace = logspace
         self.profile_scale = profile_scale
         self.individual_profiles = individual_profiles
         self.rad_dist = RadialDistribution(256 * profile_scale, 256 * profile_scale, device)
-        self.include_2d = include_2d
+        self.loss_2d = loss_2d
+        self.loss_1d = loss_1d
 
     def forward(self, x: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
-        if self.include_2d:
+        if self.loss_1d is None or self.loss_2d is None:
+            p = y
+        else:
             p = y[1:]
             y = y[0]
-        else:
-            p = y
 
-        if self.include_2d:
+        if self.loss_2d is not None and a > 0:
             if self.logspace:
                 y = torch.log1p(y)
 
-            loss_2d = torch.nn.functional.huber_loss(x, y)
+            loss_2d = self.loss_2d(x, y)
         else:
             loss_2d = 0
             
-        if b > 0:
+        if self.loss_1d is not None and b > 0:
             if self.logspace:
                 x = torch.expm1(x)
 
             x1d, target1d = prepare_profiles(x, p, self.individual_profiles, self.rad_dist, self.profile_scale)
-            loss_1d = torch.nn.functional.huber_loss(x1d, target1d)
+            loss_1d = self.loss_1d(x1d, target1d)
         else:
             loss_1d = 0
 
@@ -43,64 +45,71 @@ class CombinedLoss(torch.nn.Module):
 
 def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_scale=1) -> tuple[torch.Tensor, torch.Tensor]:
     target_profile, center_sizes, centers = target
-    centered_input2d = center_images(input2d, centers).squeeze(1)
+    
+    # --- Step 1: Center Images ---
+    centered_input2d = center_images(input2d, centers).squeeze(1)  # Shape: (B, H, W)
 
-    if individual_profiles:
-        # 1. Batch Interpolation: (B, H, W) -> (B, 1, H, W) -> Interpolate -> (B, H_new, W_new)
-        if profile_scale != 1:
-            centered_input2d = F.interpolate(
-                centered_input2d.unsqueeze(1), 
-                scale_factor=profile_scale, 
-                mode="bicubic"
-            ).squeeze(1)
+    # --- Step 2: Handle Aggregation if not individual ---
+    if not individual_profiles:
+        # Sum across the batch dimension to create a single global image
+        # Keepdim=True preserves the batch dimension as 1: Shape (1, H, W)
+        centered_input2d = centered_input2d.sum(dim=0, keepdim=True)
+        # For target profiles and center sizes, we only care about the first one
+        center_sizes = center_sizes[0:1]
+        target_profile = target_profile[0:1]
 
-        # 2. Batch Radial Distance: Expects (B, H, W), returns (B, seq_len)
-        _, intensity = rad_dist(centered_input2d)
-        
-        # 3. Vectorized Masking: Create a 2D mask matching intensity shape (B, seq_len)
-        # arange shape: (1, seq_len)
-        steps = torch.arange(intensity.shape[1], device=intensity.device).unsqueeze(0)
-        # effective_centers shape: (B, 1)
-        effective_centers = (center_sizes * profile_scale).unsqueeze(1)
-        
-        # Mask out values where the index is less than the center size
-        intensity[steps < effective_centers] = 0
+    # --- Step 3: Batch Interpolation ---
+    if profile_scale != 1:
+        centered_input2d = F.interpolate(
+            centered_input2d.unsqueeze(1), 
+            scale_factor=profile_scale, 
+            mode="bicubic"
+        ).squeeze(1)
 
-        # 4. Vectorized Normalization: Max over the first half for each row
-        half_len = intensity.shape[1] // 2
-        # Keepdim=True ensures max_vals shape is (B, 1) for proper broadcasting
-        max_vals, _ = intensity[:, :half_len].max(dim=1, keepdim=True)
-        
-        # Prevent division by zero if an entire row is zero
-        max_vals = torch.clamp(max_vals, min=1e-8)
-        intensity = intensity / max_vals
+    # --- Step 4: Radial Distance Extraction ---
+    # radial_distance shape: (seq_len,)
+    # intensity shape: (B, seq_len)
+    radial_distance, intensity = rad_dist(centered_input2d)
+    
+    # --- Step 5: Center Masking (Using radial_distance View) ---
+    # unsqueeze(0) safely creates a view of shape (1, seq_len) without altering the original
+    radial_coords = radial_distance.unsqueeze(0) 
+    effective_centers = (center_sizes * profile_scale).unsqueeze(1)  # Shape: (B, 1)
+    
+    # Generate a safe boolean multiplier mask
+    mask = (radial_coords >= effective_centers).to(dtype=intensity.dtype)
+    intensity = intensity * mask
 
-        # 5. Vectorized Padding for target profiles
-        pad_len = intensity.shape[1] - target_profile.shape[1]
+    # --- Step 6: Normalization with Low-Value Skip Protection ---
+    # Max peak should be in the first half (avoids noise around the edges)
+    half_len = intensity.shape[1] // 2
+    max_vals, _ = intensity[:, :half_len].max(dim=1, keepdim=True)  # Shape: (B, 1)
+    
+    # Define a strict threshold below which signal is considered non-existent/noise
+    min_signal_threshold = 0.1
+    
+    # Vectorized conditional normalization: 
+    # If max_vals > threshold, divide by (max_vals + 1e-6) for smooth scaling.
+    # Otherwise, leave the row as zeros to completely bypass zero-division or noise scaling.
+    intensity = torch.where(
+        max_vals > min_signal_threshold,
+        intensity / (max_vals + 1e-6),
+        torch.zeros_like(intensity)
+    )
+
+    # --- Step 7: Vectorized Target Padding ---
+    pad_len = intensity.shape[1] - target_profile.shape[1]
+    if pad_len > 0:
         target_profile = F.pad(target_profile, (0, pad_len))
+    elif pad_len < 0:
+        target_profile = target_profile[:, :intensity.shape[1]]
 
-        return intensity, target_profile
-    else:
-        centered_input2d = centered_input2d.sum(dim=0)
+    # Squeeze dimensions back to (seq_len,) if individual_profiles was False
+    if not individual_profiles:
+        intensity = intensity.squeeze(0)
+        target_profile = target_profile.squeeze(0)
 
-        if profile_scale != 1:
-            centered_input2d = F.interpolate(centered_input2d.unsqueeze(0), scale_factor=profile_scale, mode="bicubic")
-            centered_input2d = centered_input2d.squeeze()
-
-        radial_distance, intensity = rad_dist(centered_input2d)
-
-        # Batch contains target for each input, however, all of them should be identical here
-        center_size = center_sizes[0]
-        target_profile = target_profile[0]
-
-        # remove center and normalize
-        intensity[:center_size * profile_scale] = 0
-        # Biggest peak should be in the first half
-        # (helps avoid high values around the edges)
-        intensity = intensity / intensity[:intensity.shape[0] // 2].max()
-
-        target_profile = torch.nn.functional.pad(target_profile, (0, intensity.shape[0] - target_profile.shape[0]))
-        return intensity, target_profile
+    return intensity, target_profile
 
 def nearest_interpolate_1d(x, y, M):
     """

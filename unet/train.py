@@ -5,7 +5,6 @@ from eval import evaluate
 from plot import create_profile_img
 from torch.utils.data import DataLoader
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
@@ -31,7 +30,7 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
-                 include_profiles = False, shuffle_val=False, same_key_batch=False):
+                 include_profiles = False, same_key_batch=False):
     train_dataset = STEMDataset(
         dataset_dir,
         "train.h5",
@@ -53,21 +52,18 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
         train_sampler = None
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=1 if same_key_batch else batch_size,
+        shuffle=None if same_key_batch else True,
         num_workers=6,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=train_sampler
     )
 
-    if same_key_batch:
-        val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size, shuffle=shuffle_val)
-    else:
-        val_sampler = None
+    val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size)
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
-        num_workers=4,
+        num_workers=6,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=val_sampler
@@ -75,8 +71,7 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
 
     return train_loader, val_loader
 
-def log_images(writer, global_step, examples, log_static, epoch_str, 
-               individual_profiles, profile_scale):
+def log_images(writer, global_step, examples, log_static, epoch_str, profile_scale):
     for i in range(len(examples)):
         x, clean, y = examples[i]
         p = y[1:]
@@ -94,22 +89,36 @@ def log_images(writer, global_step, examples, log_static, epoch_str,
             y_log = y[:4]
             writer.add_images(f"StaticTargets/Target{i}", y_log, global_step)
 
-        if individual_profiles:
-            clean = clean[0][None] # add batch dim back
-            p = [z[0][None] for z in p]
         writer.add_image(
             f"{epoch_str}Profiles/Profile{i}", 
-            create_profile_img(clean, p, individual_profiles, rad_dist, profile_scale), 
+            create_profile_img(clean, p, False, rad_dist, profile_scale), 
             global_step
         )
 
+def serialize_config(cfg):
+    serialized = cfg.copy()
+
+    for key, obj in serialized.items():
+        # Check if the item is a PyTorch Module (Losses are Modules)
+        if isinstance(obj, torch.nn.Module):
+            serialized[key] = {
+                "__module__": obj.__class__.__module__,
+                "__class__": obj.__class__.__name__,
+                "params": {
+                    k: v
+                    for k, v in obj.__dict__.items()
+                    if not k.startswith("_") and isinstance(v, (int, float, str, bool, list, dict))
+                },
+            }
+    return serialized
 
 def train(config: dict, experiment_name=None):
     # -------------------------------
     # Extract parameters from config
     # -------------------------------
     dataset_dir = config['dataset_dir']
-    dataset_type = config['dataset_type']
+    loss_2d = config['loss_2d']
+    loss_1d = config['loss_1d']
     same_sample_batch = config['same_sample_batch']
     scale_factor = config['scale_factor']
     profile_scale = config['profile_scale']
@@ -124,26 +133,14 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     # Initialize dataset
     # -------------------------------
-    if dataset_type == "2D":
-        train_loader, val_loader = init_dataset(dataset_dir, batch_size, scale_factor)
-    elif dataset_type == "1D":
-        train_loader, val_loader = init_dataset(
-            dataset_dir, 
-            batch_size, 
-            scale_factor,
-            include_targets=False,
-            include_profiles=True,
-            same_key_batch=same_sample_batch
-        )
-    elif dataset_type == "2D+1D":
-        train_loader, val_loader = init_dataset(
-            dataset_dir, 
-            batch_size, 
-            scale_factor,
-            include_targets=True,
-            include_profiles=True,
-            same_key_batch=same_sample_batch
-        )
+    train_loader, val_loader = init_dataset(
+        dataset_dir, 
+        batch_size, 
+        scale_factor,
+        include_targets=loss_2d is not None,
+        include_profiles=loss_1d is not None,
+        same_key_batch=same_sample_batch
+    )
 
     # -------------------------------
     # Prepare experiment directory
@@ -155,7 +152,7 @@ def train(config: dict, experiment_name=None):
     checkpoint_dir = f"runs2/{experiment_id}"
     os.makedirs(checkpoint_dir, exist_ok=True)
     with open(os.path.join(checkpoint_dir, "config.json"), "w") as f:
-        json.dump(config, f, indent=1)
+        json.dump(serialize_config(config), f, indent=1)
 
     # -------------------------------
     # Model
@@ -171,12 +168,22 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     # Loss & optimizer
     # -------------------------------
-    if dataset_type == "1D":
-        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_sample_batch, include_2d=False)
-    elif dataset_type == "2D+1D":
-        criterion = CombinedLoss(device, model.logspace, profile_scale, not same_sample_batch, include_2d=True)
-    else:
-        criterion = nn.HuberLoss()
+    criterion = CombinedLoss(
+        device, 
+        model.logspace, 
+        profile_scale, 
+        individual_profiles=not same_sample_batch, 
+        loss_1d=loss_1d, 
+        loss_2d=loss_2d
+    )
+    eval_criterion = CombinedLoss(
+        device, 
+        model.logspace, 
+        profile_scale, 
+        individual_profiles=not same_sample_batch, 
+        loss_1d=loss_1d if loss_1d is not None else torch.nn.L1Loss(), 
+        loss_2d=loss_2d if loss_2d is not None else torch.nn.L1Loss()
+    )
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -186,6 +193,7 @@ def train(config: dict, experiment_name=None):
     )
 
     # Loss weights
+    interpolate_weights = loss_2d is not None and loss_1d is not None
     a, b = 1, 1
 
     # -------------------------------
@@ -215,17 +223,10 @@ def train(config: dict, experiment_name=None):
 
             clean_pred = model(x)
 
-            if dataset_type == "2D+1D":
+            if interpolate_weights:
                 a = float(np.interp(epoch, [0, num_epochs], [1, 0.7]))
                 b = 1 - a
-                loss = criterion(clean_pred, y, a, b)
-            elif dataset_type == "1D":
-                loss = criterion(x, y)
-            else:
-                if model.logspace:
-                    loss = criterion(clean_pred, torch.log1p(y))
-                else:
-                    loss = criterion(clean_pred, y)
+            loss = criterion(clean_pred, y, a, b)
 
             loss.backward()
             optimizer.step()
@@ -240,7 +241,7 @@ def train(config: dict, experiment_name=None):
             writer.add_scalar("Train/loss", loss.item(), global_step)
             if log_interval > 0 and global_step % log_interval == 0:
                 eval_metrics, examples = evaluate(
-                    model, val_loader, device, criterion, return_every=5, a=a, b=b
+                    model, val_loader, device, eval_criterion, return_every=5, a=a, b=b
                 )
 
                 for n, v in eval_metrics.items():
@@ -256,7 +257,6 @@ def train(config: dict, experiment_name=None):
                     examples, 
                     not inputs_targets_logged, 
                     "DuringEpoch",
-                    (not same_sample_batch) and dataset_type != "2D",
                     profile_scale
                 )
                 inputs_targets_logged = True
@@ -275,7 +275,7 @@ def train(config: dict, experiment_name=None):
 
         # Metrics
         eval_metrics, examples = evaluate(
-            model, val_loader, device, criterion, return_every=5, a=a, b=b
+            model, val_loader, device, eval_criterion, return_every=5, a=a, b=b
         )
         
         for n, v in eval_metrics.items():
@@ -290,7 +290,6 @@ def train(config: dict, experiment_name=None):
             examples, 
             not inputs_targets_logged, 
             "EndOfEpoch",
-            (not same_sample_batch) and dataset_type != "2D",
             profile_scale
         )
         inputs_targets_logged = True
@@ -302,9 +301,8 @@ def train(config: dict, experiment_name=None):
         tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {eval_metrics["avg_loss"]:.6f}, Avg val psnr: {eval_metrics["avg_psnr"]:.6f}")
 
         # Log loss weights
-        if dataset_type == "2D+1D":
-            writer.add_scalar("Hyperparameters/WeightA", a, epoch)
-            writer.add_scalar("Hyperparameters/WeightB", b, epoch)
+        writer.add_scalar("Hyperparameters/WeightA", a, epoch)
+        writer.add_scalar("Hyperparameters/WeightB", b, epoch)
         
         # Log learning rate
         current_lr = optimizer.param_groups[0]['lr']
@@ -327,12 +325,14 @@ def train(config: dict, experiment_name=None):
 
 if __name__ == "__main__":
     config = {
-        # Directory containing 
+        # Directory containing the dataset
         "dataset_dir": "dataset",
-        # Possible dataset_type values: "2D", "1D", "2D+1D"
-        "dataset_type": "2D",
-        # Does nothing for "2D"
-        "same_sample_batch": False,
+        # 2D loss, can be None
+        "loss_2d": torch.nn.HuberLoss(),
+        # 1D loss, can be None
+        "loss_1d": torch.nn.HuberLoss(),
+        # Batches contain images only for one sample (e.g. a batch contains only Au)
+        "same_sample_batch": True,
         # Rescale input images and 2D targets
         "scale_factor": 1,
         # Scale for 1d targets and rescale nn outputs for 1d profile calculation
@@ -356,7 +356,7 @@ if __name__ == "__main__":
             # Number of channels on the first level of unet
             # Level n has base_channels * 2^n channels
             "base_channels": 2,
-            # Normalize input (output is denormalized)
+            # Normalize input (and denormalize output)
             "normalize": False,
             # Network inputs is log(input + 1), done before normalization
             "logspace": True,
