@@ -3,9 +3,7 @@ import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import sklearn.metrics
 import scipy.special
-import scipy.spatial.distance
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
@@ -32,6 +30,12 @@ def kl_divergence(x, y):
 
     return scipy.special.rel_entr(P, Q).sum()
 
+def reverse_kl_divergence(x, y):
+    return kl_divergence(y, x)
+
+def symmetric_kl_divergence(x, y):
+    return kl_divergence(x, y) + kl_divergence(y, x)
+
 def symmetric_mean_absolute_percentage_error(x, y):
     # Tiny constant (epsilon)
     epsilon = 1e-12
@@ -42,10 +46,20 @@ def symmetric_mean_absolute_percentage_error(x, y):
 
     return (2 / len(x)) * np.sum(np.abs(x - y) / (np.abs(x) + np.abs(y)))
 
-def hellinger_distance(x, y):
-    return np.sqrt(
-        np.sum((np.sqrt(x) - np.sqrt(y)) ** 2)
-    ) / np.sqrt(2)
+def cross_entropy(x, y):
+    # Tiny constant (epsilon)
+    epsilon = 1e-12
+
+    # Smooth only y (for x=0,y=0 we have 0 * np.log(Q))
+    y_smoothed = y + epsilon
+
+    # Normalize
+    P = x / x.sum()
+    Q = y_smoothed / y_smoothed.sum()
+    return -np.mean(P * np.log(Q))
+
+def symmetric_cross_entropy(x, y):
+    return cross_entropy(x, y) + cross_entropy(y, x)
 
 # ==========================================
 # 1. CONFIGURATION & DATASETS
@@ -98,27 +112,17 @@ DATASETS = {
         "cif_path": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
         "xrd_path": "unet/dataset/gdf3",
         "xrange": (30, 800),
-        "xrd_range": (0, 1.9),
+        "xrd_range": (0, 1.8),
         "db_path": "unet/dataset/dbase/",
         "db_file": "db_train_gdf3",
         "filter_count": 100,
     },
 }
 
-# Calibration constants * upscale factor
-CALIBRATION_CONSTANTS = None
-# CALIBRATION_CONSTANTS = {
-#     "au": 7.402490460157548 * 4,
-#     "feo": 8.038987436495407 * 4,
-#     "gdf3": 7.452211003257295 * 4,
-#     "laf3": 7.99951908464939 * 4,
-#     "tbf3": 7.50184092448344 * 4
-# }
-
 # Define the grid search space for bkgp
 PARAM_GRID = {
-    "sigma": [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15],
-    "thr": [0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6],
+    "sigma": [1.5, 2, 2.5, 3, 4, 5, 6, 8, 10],
+    "thr": [1, 1.5, 2, 2.5, 3, 4, 5, 6],
     "area_size": [3, 4, 5, 6, 7, 8, 10],
     "normalize": [True]
 }
@@ -176,10 +180,6 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
         )
         with open(prof_cache_path, "wb") as f:
             pickle.dump(prof_gaussian, f)
-    
-    # Apply calibration constant
-    if CALIBRATION_CONSTANTS is not None:
-        prof_gaussian.diffractogram.q = prof_gaussian.diffractogram.Pixels / CALIBRATION_CONSTANTS[XRD.dataset_name]
 
     # --- STEP 3: Metric Evaluation ---
     diff_g = prof_gaussian.diffractogram
@@ -319,15 +319,18 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
 if __name__ == "__main__":
     combinations = get_param_combinations(PARAM_GRID)
     metrics = [
-        sklearn.metrics.mean_absolute_error,
-        sklearn.metrics.mean_absolute_percentage_error,
+        # sklearn.metrics.mean_absolute_error,
+        # sklearn.metrics.mean_absolute_percentage_error,
         symmetric_mean_absolute_percentage_error,
-        hellinger_distance,
-        kl_divergence,
-        scipy.spatial.distance.jensenshannon,
+        # kl_divergence,
+        reverse_kl_divergence,
+        # scipy.spatial.distance.jensenshannon,
+        # symmetric_kl_divergence,
+        # cross_entropy,
+        symmetric_cross_entropy
     ]
     
-    run_name = f"01_profile_sigma_0.2_default_const"
+    run_name = f"profile_sigma_0.03"
     for profile_sigma in [None]:
         for metric in metrics:
             result_dir = Path("grid_search_results") / run_name / \
