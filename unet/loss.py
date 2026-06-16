@@ -54,15 +54,32 @@ class CombinedLoss(torch.nn.Module):
         self.total_variation_w = total_variation
         self.local_cons_reg_w = local_cons_reg
         if local_cons_reg > 0:
-            # Large area mean
-            self.local_cons_reg_l = torch.nn.Conv2d(1, 1, 9, bias=False, device=device, padding="same")
-            torch.nn.init.uniform_(self.local_cons_reg_l.weight, 1/81, 1/81)
-            self.local_cons_reg_l.requires_grad_(False)
+            # 1D Kernels
+            k_l_1d = get_gaussian_kernel_1d(33, sigma=8.0, device=device)
+            k_s_1d = get_gaussian_kernel_1d(7, sigma=1.2, device=device)
 
-            # Small area mean
-            self.local_cons_reg_s = torch.nn.Conv2d(1, 1, 3, bias=False, device=device, padding="same")
-            torch.nn.init.uniform_(self.local_cons_reg_s.weight, 1/9, 1/9)
-            self.local_cons_reg_s.requires_grad_(False)
+            # Large Scale Layers (Horizontal & Vertical)
+            self.local_cons_reg_l_h = torch.nn.Conv2d(1, 1, kernel_size=(1, 33), padding=(0, 16), bias=False, device=device)
+            self.local_cons_reg_l_h.weight.data = k_l_1d.view(1, 1, 1, 33)
+            self.local_cons_reg_l_h.requires_grad_(False)
+
+            self.local_cons_reg_l_v = torch.nn.Conv2d(1, 1, kernel_size=(33, 1), padding=(16, 0), bias=False, device=device)
+            self.local_cons_reg_l_v.weight.data = k_l_1d.view(1, 1, 33, 1)
+            self.local_cons_reg_l_v.requires_grad_(False)
+
+            # Small Scale Layers (Horizontal & Vertical)
+            self.local_cons_reg_s_h = torch.nn.Conv2d(1, 1, kernel_size=(1, 7), padding=(0, 3), bias=False, device=device)
+            self.local_cons_reg_s_h.weight.data = k_s_1d.view(1, 1, 1, 7)
+            self.local_cons_reg_s_h.requires_grad_(False)
+
+            self.local_cons_reg_s_v = torch.nn.Conv2d(1, 1, kernel_size=(7, 1), padding=(3, 0), bias=False, device=device)
+            self.local_cons_reg_s_v.weight.data = k_s_1d.view(1, 1, 7, 1)
+            self.local_cons_reg_s_v.requires_grad_(False)
+
+    def get_means(self, img):
+        means_l = self.local_cons_reg_l_v(self.local_cons_reg_l_h(img))
+        means_s = self.local_cons_reg_s_v(self.local_cons_reg_s_h(img))
+        return means_l, means_s
 
     def forward(self, x: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
         p = y[1:]
@@ -88,22 +105,19 @@ class CombinedLoss(torch.nn.Module):
             loss_1d = 0
 
         if self.l1_reg_w > 0:
-            # l1 norm + ensure non negative
+            # l1 norm + negative penalty
             l1_reg = torch.mean(torch.abs(x)) + torch.sum(torch.relu(-x))
         else:
             l1_reg = 0
 
         if self.total_variation_w > 0:
-            tv = torchmetrics.functional.total_variation(x)
+            tv = torchmetrics.functional.total_variation(x, reduction="mean")
         else:
             tv = 0
 
         if self.local_cons_reg_w > 0:
-            means_x_l = self.local_cons_reg_l(x)
-            means_y_l = self.local_cons_reg_l(y)
-
-            means_x_s = self.local_cons_reg_s(x)
-            means_y_s = self.local_cons_reg_s(y)
+            means_x_l, means_x_s = self.get_means(x)
+            means_y_l, means_y_s = self.get_means(y)
 
             lc_reg = torch.nn.functional.mse_loss(
                 means_x_l - means_x_s, 
@@ -382,3 +396,8 @@ class RadialDistribution(torch.nn.Module):
             intensity = intensity.squeeze(0)
 
         return self.radial_distance, intensity
+    
+def get_gaussian_kernel_1d(kernel_size: int, sigma: float, device):
+    x = torch.arange(kernel_size, device=device) - (kernel_size - 1) / 2
+    gauss_1d = torch.exp(-0.5 * (x / sigma) ** 2)
+    return gauss_1d / gauss_1d.sum()

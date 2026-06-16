@@ -148,15 +148,19 @@ class ResidualUNet(nn.Module):
         if self.predict_background:
             # Residual output
             if self.training:
+                background = torch.nn.functional.relu(output)
+                clean = torch.nn.functional.relu(input_img - background)
+
                 # background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
                 # clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
-                background = torch.nn.functional.softplus(output)
-                clean = torch.nn.functional.softplus(input_img - background)
+
+                # background = torch.nn.functional.softplus(output)
+                # clean = torch.nn.functional.softplus(input_img - background)
             else:
-                # background = torch.relu(output)
-                # clean = torch.relu(input_img - background)
-                background = torch.nn.functional.softplus(output)
-                clean = torch.nn.functional.softplus(input_img - background)
+                background = torch.relu(output)
+                clean = torch.relu(input_img - background)
+                # background = torch.nn.functional.softplus(output)
+                # clean = torch.nn.functional.softplus(input_img - background)
         else:
             if self.training:
                 clean = torch.nn.functional.leaky_relu(output, negative_slope=0.01)

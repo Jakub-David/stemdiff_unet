@@ -330,7 +330,7 @@ def train(config: dict, experiment_name=None):
 if __name__ == "__main__":
     config = {
         # Directory containing the dataset
-        "dataset_dir": "dataset_filtered",
+        "dataset_dir": "dataset",
         # 2D loss, can be None
         "loss_2d": None, #loss.SymmetricMAPELoss(),
         # 1D loss, can be None
@@ -338,13 +338,13 @@ if __name__ == "__main__":
         # Apply l1 regularization on the network output
         # This is the weight for the regularization, 0 means off
         # Includes penalty negative  values
-        "l1_regularization": 1e-5,
+        "l1_regularization": 1e-6,
         # Total variation reg
-        "total_variation": 0,
+        "total_variation": 1e-9,
         # Local consistency reg
-        "local_consistency_reg": 1e-3,
+        "local_consistency_reg": 5e-3,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
-        "same_sample_batch": True,
+        "same_sample_batch": False,
         # Rescale input images and 2D targets
         "scale_factor": 1,
         # Scale for 1d targets and rescale nn outputs for 1d profile calculation
@@ -366,21 +366,21 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": 1,
+            "base_channels": 2,
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
             "reduced_channels": False,
             # Normalize input (and denormalize output)
             "normalize": True,
             # Network inputs is log(input + 1), done before normalization
-            "logspace": False,
+            "logspace": True,
             # If true, clean = input - output;
             # otherwise, clean = output
             "predict_background": True
         },
     }
 
-    for lr in [8e-4]:
+    for lr in [8e-5]:
         config["lr"] = lr
-        exp_id = train(config, f"bc1_norm_lr{lr:g}_only_reg")
+        exp_id = train(config, f"bc2_norm_logspace_norm_lr{lr:g}_only_reg_gauss_tv")
     
