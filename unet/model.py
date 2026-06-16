@@ -49,7 +49,8 @@ class DoubleConv(nn.Module):
 
 class ResidualUNet(nn.Module):
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
-                 logspace=False, normalize=True, predict_background=True):
+                 logspace=False, normalize=True, predict_background=True,
+                 reduced_channels=False):
         super().__init__()
         self.in_channels = in_channels
         self.base_channels = base_channels
@@ -57,12 +58,20 @@ class ResidualUNet(nn.Module):
         self.logspace = logspace
         self.normalize = normalize
         self.predict_background = predict_background
+        self.reduced_channels = reduced_channels
 
-        c1 = base_channels
-        c2 = base_channels * 2
-        c3 = base_channels * 4
-        c4 = base_channels * 8
-        c5 = base_channels * 16
+        if reduced_channels:
+            c1 = base_channels
+            c2 = base_channels + 1
+            c3 = base_channels + 2
+            c4 = base_channels + 3
+            c5 = base_channels + 4
+        else:
+            c1 = base_channels
+            c2 = base_channels * 2
+            c3 = base_channels * 4
+            c4 = base_channels * 8
+            c5 = base_channels * 16
 
         self.pool = nn.MaxPool2d(2)
 
@@ -139,11 +148,15 @@ class ResidualUNet(nn.Module):
         if self.predict_background:
             # Residual output
             if self.training:
-                background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
-                clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
+                # background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
+                # clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
+                background = torch.nn.functional.softplus(output)
+                clean = torch.nn.functional.softplus(input_img - background)
             else:
-                background = torch.relu(output)
-                clean = torch.relu(input_img - background)
+                # background = torch.relu(output)
+                # clean = torch.relu(input_img - background)
+                background = torch.nn.functional.softplus(output)
+                clean = torch.nn.functional.softplus(input_img - background)
         else:
             if self.training:
                 clean = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
@@ -211,12 +224,15 @@ class ResidualUNet(nn.Module):
             # Weights
             "model_state_dict": self.state_dict(),
             # Parameters
-            "in_channels": self.in_channels,
-            "base_channels": self.base_channels,
-            "dropout": self.dropout,
-            "logspace": self.logspace,
-            "normalize": self.normalize,
-            "predict_background": self.predict_background,
+            "model_params":{
+                "in_channels": self.in_channels,
+                "base_channels": self.base_channels,
+                "dropout": self.dropout,
+                "logspace": self.logspace,
+                "normalize": self.normalize,
+                "predict_background": self.predict_background,
+                "reduced_channels": self.reduced_channels,
+            },
             # Training state
             "epoch": epoch,
             "optimizer_state_dict": optimizer.state_dict() if optimizer else None,
@@ -229,14 +245,7 @@ class ResidualUNet(nn.Module):
             path = next(Path(path).glob(pattern))
         c = torch.load(path)
 
-        model = ResidualUNet(
-            in_channels=c["in_channels"],
-            base_channels=c["base_channels"],
-            dropout=c["dropout"],
-            logspace=c["logspace"],
-            normalize=c["normalize"],
-            predict_background=c["predict_background"],
-        )
+        model = ResidualUNet(**c["model_params"])
         model.load_state_dict(c['model_state_dict'])
 
         return model, c

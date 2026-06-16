@@ -1,11 +1,48 @@
 import torch
 import torch.nn.functional as F
+import torchmetrics
 import numpy as np
 import ediff
 
+class ReverseKLDivLoss(torch.nn.Module):
+    def __init__(self, epsilon = 1e-5, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.kl_div = torch.nn.KLDivLoss(reduction="batchmean")
+        self.epsilon = epsilon
+    
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # 1. Ensure tensors have batch dimension
+        if target.ndim == 1:
+            target = target.unsqueeze(0)
+        if prediction.ndim == 1:
+            prediction = prediction.unsqueeze(0)
+
+        # 2. Smooth tensors
+        target = target + self.epsilon
+        prediction = prediction + self.epsilon
+
+        # 3. Normalize
+        target = target / target.sum(dim=0, keepdim=True)
+        prediction = prediction / prediction.sum(dim=0, keepdim=True)
+
+        # 4. Compute KL Divergence with reversed arguments
+        return self.kl_div(target.log(), prediction)
+    
+class SymmetricMAPELoss(torch.nn.Module):
+    def __init__(self, epsilon = 1e-12, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epsilon = epsilon
+
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Calculate loss
+        numerator = torch.abs(prediction - target)
+        denominator = prediction.abs() + target.abs() + self.epsilon
+        return 2 * torch.mean(numerator / denominator)
+
+
 class CombinedLoss(torch.nn.Module):
     def __init__(self, device, logspace=False, profile_scale=1, individual_profiles=False, 
-                 loss_1d=None, loss_2d=None):
+                 loss_1d=None, loss_2d=None, l1_reg=0, total_variation=0, local_cons_reg=0):
         super().__init__()
         self.logspace = logspace
         self.profile_scale = profile_scale
@@ -13,35 +50,78 @@ class CombinedLoss(torch.nn.Module):
         self.rad_dist = RadialDistribution(256 * profile_scale, 256 * profile_scale, device)
         self.loss_2d = loss_2d
         self.loss_1d = loss_1d
+        self.l1_reg_w = l1_reg
+        self.total_variation_w = total_variation
+        self.local_cons_reg_w = local_cons_reg
+        if local_cons_reg > 0:
+            # Large area mean
+            self.local_cons_reg_l = torch.nn.Conv2d(1, 1, 9, bias=False, device=device, padding="same")
+            torch.nn.init.uniform_(self.local_cons_reg_l.weight, 1/81, 1/81)
+            self.local_cons_reg_l.requires_grad_(False)
+
+            # Small area mean
+            self.local_cons_reg_s = torch.nn.Conv2d(1, 1, 3, bias=False, device=device, padding="same")
+            torch.nn.init.uniform_(self.local_cons_reg_s.weight, 1/9, 1/9)
+            self.local_cons_reg_s.requires_grad_(False)
 
     def forward(self, x: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
-        if self.loss_1d is None or self.loss_2d is None:
-            p = y
-        else:
-            p = y[1:]
-            y = y[0]
+        p = y[1:]
+        y = y[0]
+
+        if self.logspace and isinstance(y, torch.Tensor):
+            y = torch.log1p(y)
 
         if self.loss_2d is not None and a > 0:
-            if self.logspace:
-                y = torch.log1p(y)
-
             loss_2d = self.loss_2d(x, y)
         else:
             loss_2d = 0
             
         if self.loss_1d is not None and b > 0:
             if self.logspace:
-                x = torch.expm1(x)
+                x_exp = torch.expm1(x)
+            else:
+                x_exp = x
 
-            x1d, target1d = prepare_profiles(x, p, self.individual_profiles, self.rad_dist, self.profile_scale)
+            x1d, target1d = prepare_profiles(x_exp, p, self.individual_profiles, self.rad_dist, self.profile_scale)
             loss_1d = self.loss_1d(x1d, target1d)
         else:
             loss_1d = 0
 
-        if return_parts:
-            return a * loss_2d + b * loss_1d, loss_2d, loss_1d
+        if self.l1_reg_w > 0:
+            # l1 norm + ensure non negative
+            l1_reg = torch.mean(torch.abs(x)) + torch.sum(torch.relu(-x))
         else:
-            return a * loss_2d + b * loss_1d
+            l1_reg = 0
+
+        if self.total_variation_w > 0:
+            tv = torchmetrics.functional.total_variation(x)
+        else:
+            tv = 0
+
+        if self.local_cons_reg_w > 0:
+            means_x_l = self.local_cons_reg_l(x)
+            means_y_l = self.local_cons_reg_l(y)
+
+            means_x_s = self.local_cons_reg_s(x)
+            means_y_s = self.local_cons_reg_s(y)
+
+            lc_reg = torch.nn.functional.mse_loss(
+                means_x_l - means_x_s, 
+                means_y_l - means_y_s
+            )
+        else:
+            lc_reg = 0
+
+        final_loss = a * loss_2d + \
+                     b * loss_1d + \
+                     self.l1_reg_w * l1_reg + \
+                     self.total_variation_w * tv + \
+                     self.local_cons_reg_w * lc_reg
+
+        if return_parts:
+            return final_loss, loss_2d, loss_1d
+        else:
+            return final_loss
 
 def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_scale=1) -> tuple[torch.Tensor, torch.Tensor]:
     target_profile, center_sizes, centers = target

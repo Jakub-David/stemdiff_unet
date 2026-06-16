@@ -29,6 +29,8 @@ def create_profile_img(x, y, individual_profiles, rad_dist, profile_scale):
     )  # Convert to [Channels, Height, Width]
     buf.close()
 
+    plt.close(fig)
+
     return image_array
 
 def show_diffractograms(imgs, clip_max=None, clip_first=False, title=None):

@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import scipy.special
+import sklearn.metrics
+import scipy.spatial.distance
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
@@ -319,14 +321,13 @@ def run_grid_search_parallel(dataset_name, ds_config, param_combinations, metric
 if __name__ == "__main__":
     combinations = get_param_combinations(PARAM_GRID)
     metrics = [
-        # sklearn.metrics.mean_absolute_error,
-        # sklearn.metrics.mean_absolute_percentage_error,
+        sklearn.metrics.mean_absolute_error,
         symmetric_mean_absolute_percentage_error,
-        # kl_divergence,
+        kl_divergence,
         reverse_kl_divergence,
-        # scipy.spatial.distance.jensenshannon,
-        # symmetric_kl_divergence,
-        # cross_entropy,
+        scipy.spatial.distance.jensenshannon,
+        symmetric_kl_divergence,
+        cross_entropy,
         symmetric_cross_entropy
     ]
     

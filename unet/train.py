@@ -1,5 +1,6 @@
 from model import ResidualUNet
 from loss import CombinedLoss, RadialDistribution
+import loss
 from data import *
 from eval import evaluate
 from plot import create_profile_img
@@ -137,8 +138,8 @@ def train(config: dict, experiment_name=None):
         dataset_dir, 
         batch_size, 
         scale_factor,
-        include_targets=loss_2d is not None,
-        include_profiles=loss_1d is not None,
+        include_targets=True,
+        include_profiles=True,
         same_key_batch=same_sample_batch
     )
 
@@ -174,7 +175,10 @@ def train(config: dict, experiment_name=None):
         profile_scale, 
         individual_profiles=not same_sample_batch, 
         loss_1d=loss_1d, 
-        loss_2d=loss_2d
+        loss_2d=loss_2d,
+        l1_reg=config["l1_regularization"],
+        total_variation=config["total_variation"],
+        local_cons_reg=config["local_consistency_reg"]
     )
     eval_criterion = CombinedLoss(
         device, 
@@ -286,7 +290,7 @@ def train(config: dict, experiment_name=None):
         
         log_images(
             writer,  
-            global_step, 
+            epoch, 
             examples, 
             not inputs_targets_logged, 
             "EndOfEpoch",
@@ -326,11 +330,19 @@ def train(config: dict, experiment_name=None):
 if __name__ == "__main__":
     config = {
         # Directory containing the dataset
-        "dataset_dir": "dataset",
+        "dataset_dir": "dataset_filtered",
         # 2D loss, can be None
-        "loss_2d": torch.nn.HuberLoss(),
+        "loss_2d": None, #loss.SymmetricMAPELoss(),
         # 1D loss, can be None
-        "loss_1d": torch.nn.HuberLoss(),
+        "loss_1d": None, #loss.SymmetricMAPELoss(), #torch.nn.HuberLoss(),
+        # Apply l1 regularization on the network output
+        # This is the weight for the regularization, 0 means off
+        # Includes penalty negative  values
+        "l1_regularization": 1e-5,
+        # Total variation reg
+        "total_variation": 0,
+        # Local consistency reg
+        "local_consistency_reg": 1e-3,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": True,
         # Rescale input images and 2D targets
@@ -339,9 +351,9 @@ if __name__ == "__main__":
         # For "2D" dataset only used in logging
         "profile_scale": 1,
         # Initial learning rate
-        "lr": 3e-3,
+        "lr": 8e-5,
         # Final learning rate (cosine decay)
-        "min_lr": 3e-5,
+        "min_lr": 3e-6,
         # Number of training epochs
         "num_epochs": 100,
         # Log every n steps, n = -1 no logging
@@ -354,17 +366,21 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            # Level n has base_channels * 2^n channels
-            "base_channels": 2,
+            "base_channels": 1,
+            # If true, Level n has `base_channels + (n - 1)` channels;
+            # otherwise, level n has `base_channels * 2^n` channels
+            "reduced_channels": False,
             # Normalize input (and denormalize output)
-            "normalize": False,
+            "normalize": True,
             # Network inputs is log(input + 1), done before normalization
-            "logspace": True,
+            "logspace": False,
             # If true, clean = input - output;
             # otherwise, clean = output
             "predict_background": True
         },
     }
 
-    exp_id = train(config, "preprocessed_bc2_logspace")
+    for lr in [8e-4]:
+        config["lr"] = lr
+        exp_id = train(config, f"bc1_norm_lr{lr:g}_only_reg")
     
