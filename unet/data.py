@@ -4,7 +4,7 @@ from torch.utils.data import Sampler, Dataset
 import random
 from pathlib import Path
 import h5py
-from dataset_enhancement import *
+import cv2 as cv
 import json
 import stemdiff as sd
 
@@ -77,7 +77,7 @@ class STEMDataset(Dataset):
 
             db_path = dataset_dir / "dbase" / f"db_{self.input_h5.stem}_{key}"
             db = sd.dbase.read_database(db_path)
-            c = db[["Xcenter", "Ycenter"]].to_numpy()
+            c = db[["Xcenter", "Ycenter"]].to_numpy().astype(np.float32)
             c /= 4 # Centers are for 4x images
             self.centers[key] = c
 

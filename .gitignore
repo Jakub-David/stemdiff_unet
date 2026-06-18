@@ -13,8 +13,7 @@ wheels/
 # Data
 DATA.STEMDIFF/
 unet/dataset*/
-unet/runs/
-unet/runs2/
+unet/runs*/
 
 # Grid search
 grid_search_cache/

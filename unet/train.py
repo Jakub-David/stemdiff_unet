@@ -72,13 +72,9 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
 
     return train_loader, val_loader
 
-def log_images(writer, global_step, examples, log_static, epoch_str, profile_scale):
+def log_images(writer, global_step, examples, log_static, epoch_str):
     for i in range(len(examples)):
-        x, clean, y = examples[i]
-        p = y[1:]
-        y = y[0]
-
-        rad_dist = RadialDistribution(256 * profile_scale, 256 * profile_scale, x.device)
+        x, clean, y, clean1d, target1d = examples[i]
         
         # log first four images in a batch
         clean_log = clean[:4]
@@ -92,7 +88,7 @@ def log_images(writer, global_step, examples, log_static, epoch_str, profile_sca
 
         writer.add_image(
             f"{epoch_str}Profiles/Profile{i}", 
-            create_profile_img(clean, p, False, rad_dist, profile_scale), 
+            create_profile_img(clean1d, target1d), 
             global_step
         )
 
@@ -150,7 +146,7 @@ def train(config: dict, experiment_name=None):
     if experiment_name != None:
         experiment_id += "_" + experiment_name
 
-    checkpoint_dir = f"runs2/{experiment_id}"
+    checkpoint_dir = f"runs/{experiment_id}"
     os.makedirs(checkpoint_dir, exist_ok=True)
     with open(os.path.join(checkpoint_dir, "config.json"), "w") as f:
         json.dump(serialize_config(config), f, indent=1)
@@ -161,7 +157,7 @@ def train(config: dict, experiment_name=None):
     ckpt = config.get("ckpt")
     ckpt_epoch = config.get("ckpt_epoch", "")
     if ckpt != None:
-        model, ckpt_config = ResidualUNet.load("runs2/", f"{ckpt}*/*{ckpt_epoch}.pt")
+        model, ckpt_config = ResidualUNet.load("runs/", f"{ckpt}*/*{ckpt_epoch}.pt")
         model = model.to(device)
     else:
         model = ResidualUNet(**model_params).to(device)
@@ -184,9 +180,9 @@ def train(config: dict, experiment_name=None):
         device, 
         model.logspace, 
         profile_scale, 
-        individual_profiles=not same_sample_batch, 
-        loss_1d=loss_1d if loss_1d is not None else torch.nn.L1Loss(), 
-        loss_2d=loss_2d if loss_2d is not None else torch.nn.L1Loss()
+        individual_profiles=False, 
+        loss_1d=loss_1d if loss_1d is not None else torch.nn.L1Loss(reduction="sum"), 
+        loss_2d=loss_2d if loss_2d is not None else torch.nn.L1Loss(reduction="sum")
     )
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -203,7 +199,7 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     # TensorBoard
     # -------------------------------
-    writer = SummaryWriter(f"runs2/{experiment_id}")
+    writer = SummaryWriter(f"runs/{experiment_id}")
     inputs_targets_logged = False
 
     print(f"Starting experiment: {experiment_id}")
@@ -260,8 +256,7 @@ def train(config: dict, experiment_name=None):
                     global_step, 
                     examples, 
                     not inputs_targets_logged, 
-                    "DuringEpoch",
-                    profile_scale
+                    "DuringEpoch"
                 )
                 inputs_targets_logged = True
                 
@@ -293,8 +288,7 @@ def train(config: dict, experiment_name=None):
             epoch, 
             examples, 
             not inputs_targets_logged, 
-            "EndOfEpoch",
-            profile_scale
+            "EndOfEpoch"
         )
         inputs_targets_logged = True
         
@@ -338,9 +332,9 @@ if __name__ == "__main__":
         # Apply l1 regularization on the network output
         # This is the weight for the regularization, 0 means off
         # Includes penalty negative  values
-        "l1_regularization": 1e-6,
+        "l1_regularization": 1e-5,
         # Total variation reg
-        "total_variation": 1e-9,
+        "total_variation": 0,
         # Local consistency reg
         "local_consistency_reg": 5e-3,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
@@ -353,9 +347,9 @@ if __name__ == "__main__":
         # Initial learning rate
         "lr": 8e-5,
         # Final learning rate (cosine decay)
-        "min_lr": 3e-6,
+        "min_lr": 1e-5,
         # Number of training epochs
-        "num_epochs": 100,
+        "num_epochs": 20,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -366,10 +360,10 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": 2,
+            "base_channels": 4,
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
-            "reduced_channels": False,
+            "reduced_channels": True,
             # Normalize input (and denormalize output)
             "normalize": True,
             # Network inputs is log(input + 1), done before normalization
@@ -380,7 +374,9 @@ if __name__ == "__main__":
         },
     }
 
-    for lr in [8e-5]:
+    for lr in [3e-4]:
         config["lr"] = lr
-        exp_id = train(config, f"bc2_norm_logspace_norm_lr{lr:g}_only_reg_gauss_tv")
+        for bc in [1, 2, 4]:
+            config["model_params"]["base_channels"] = bc
+            exp_id = train(config, f"bc{bc}_logspace_norm_lr{lr:g}_only_reg_lhgauss8-3-k33_s1-k5_l1-1e-5_reduced")
     

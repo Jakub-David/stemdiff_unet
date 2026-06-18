@@ -5,11 +5,8 @@ import io
 from loss import prepare_profiles
 
 
-def create_profile_img(x, y, individual_profiles, rad_dist, profile_scale):
-    # 1. Create profiles
-    x, y = prepare_profiles(x, y, individual_profiles, rad_dist, profile_scale)
-
-    # 2. Create the matplotlib figure
+def create_profile_img(x, y):
+    # 1. Create the matplotlib figure
     fig, ax = plt.subplots(figsize=(8, 3), dpi=300)
     ax.plot(y.squeeze(), label="Target")
     ax.plot(x.squeeze(), label="NN output")
@@ -17,7 +14,7 @@ def create_profile_img(x, y, individual_profiles, rad_dist, profile_scale):
     ax.set_xlabel("Pixels")
     ax.legend()
 
-    # 3. Render the plot to an image buffer
+    # 2. Render the plot to an image buffer
     buf = io.BytesIO()
     plt.savefig(buf, format="png")
     buf.seek(0)
