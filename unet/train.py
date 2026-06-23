@@ -55,7 +55,7 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
         train_dataset,
         batch_size=1 if same_key_batch else batch_size,
         shuffle=None if same_key_batch else True,
-        num_workers=6,
+        num_workers=12,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=train_sampler
@@ -64,7 +64,7 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
     val_sampler = SameKeyBatchSampler(val_dataset.index_map, batch_size)
     val_loader = DataLoader(
         val_dataset,
-        num_workers=6,
+        num_workers=12,
         pin_memory=True,
         persistent_workers=True,
         batch_sampler=val_sampler
@@ -116,6 +116,7 @@ def train(config: dict, experiment_name=None):
     dataset_dir = config['dataset_dir']
     loss_2d = config['loss_2d']
     loss_1d = config['loss_1d']
+    loss_2d_final_w = config['loss_2d_final_w']
     same_sample_batch = config['same_sample_batch']
     scale_factor = config['scale_factor']
     profile_scale = config['profile_scale']
@@ -162,6 +163,8 @@ def train(config: dict, experiment_name=None):
     else:
         model = ResidualUNet(**model_params).to(device)
 
+    model = torch.compile(model)
+
     # -------------------------------
     # Loss & optimizer
     # -------------------------------
@@ -181,8 +184,8 @@ def train(config: dict, experiment_name=None):
         model.logspace, 
         profile_scale, 
         individual_profiles=False, 
-        loss_1d=loss_1d if loss_1d is not None else torch.nn.L1Loss(reduction="sum"), 
-        loss_2d=loss_2d if loss_2d is not None else torch.nn.L1Loss(reduction="sum")
+        loss_1d=torch.nn.L1Loss(reduction="sum"), 
+        loss_2d=torch.nn.L1Loss(reduction="sum")
     )
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -224,7 +227,7 @@ def train(config: dict, experiment_name=None):
             clean_pred = model(x)
 
             if interpolate_weights:
-                a = float(np.interp(epoch, [0, num_epochs], [1, 0.7]))
+                a = float(np.interp(epoch, [0, num_epochs], [1, loss_2d_final_w]))
                 b = 1 - a
             loss = criterion(clean_pred, y, a, b)
 
@@ -241,7 +244,7 @@ def train(config: dict, experiment_name=None):
             writer.add_scalar("Train/loss", loss.item(), global_step)
             if log_interval > 0 and global_step % log_interval == 0:
                 eval_metrics, examples = evaluate(
-                    model, val_loader, device, eval_criterion, return_every=5, a=a, b=b
+                    model, val_loader, device, eval_criterion, return_every=10, a=a, b=b
                 )
 
                 for n, v in eval_metrics.items():
@@ -274,7 +277,7 @@ def train(config: dict, experiment_name=None):
 
         # Metrics
         eval_metrics, examples = evaluate(
-            model, val_loader, device, eval_criterion, return_every=5, a=a, b=b
+            model, val_loader, device, eval_criterion, return_every=10, a=a, b=b
         )
         
         for n, v in eval_metrics.items():
@@ -329,6 +332,9 @@ if __name__ == "__main__":
         "loss_2d": None, #loss.SymmetricMAPELoss(),
         # 1D loss, can be None
         "loss_1d": None, #loss.SymmetricMAPELoss(), #torch.nn.HuberLoss(),
+        # Final weight of 2d loss
+        # (Used only if both losses are used)
+        "loss_2d_final_w": 0.7,
         # Apply l1 regularization on the network output
         # This is the weight for the regularization, 0 means off
         # Includes penalty negative  values
@@ -366,6 +372,8 @@ if __name__ == "__main__":
             "reduced_channels": True,
             # Normalize input (and denormalize output)
             "normalize": True,
+            # Should be detectors max. value (11810). If None, use standardization
+            "normalization_constant": 11810,
             # Network inputs is log(input + 1), done before normalization
             "logspace": True,
             # If true, clean = input - output;

@@ -108,3 +108,23 @@ for p, n in zip(paths, names):
 save_h5(train, output_dir / "train.h5")
 save_h5(val, output_dir / "val.h5")
 save_h5(test, output_dir / "test.h5")
+
+
+# Save whole tio2 as test sets 
+_, _, df_tio2a = load_cached(
+    Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2"), 
+    "tio2-a"
+)
+stemdiff.dbase.save_database(
+    df_tio2a, 
+    output_dir / "dbase" / f"db_test_tio2-a"
+)
+
+_, _, df_tio2r = load_cached(
+    Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"), 
+    "tio2-r"
+)
+stemdiff.dbase.save_database(
+    df_tio2r, 
+    output_dir / "dbase" / f"db_test_tio2-r"
+)

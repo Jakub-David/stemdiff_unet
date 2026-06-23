@@ -50,7 +50,7 @@ class DoubleConv(nn.Module):
 class ResidualUNet(nn.Module):
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
                  logspace=False, normalize=True, predict_background=True,
-                 reduced_channels=False):
+                 reduced_channels=False, normalization_constant=None):
         super().__init__()
         self.in_channels = in_channels
         self.base_channels = base_channels
@@ -59,6 +59,12 @@ class ResidualUNet(nn.Module):
         self.normalize = normalize
         self.predict_background = predict_background
         self.reduced_channels = reduced_channels
+        self.normalization_constant = normalization_constant
+
+        if self.logspace and normalization_constant is not None:
+            self._nc = np.log1p(normalization_constant)
+        else:
+            self._nc = normalization_constant
 
         if reduced_channels:
             c1 = base_channels
@@ -106,12 +112,15 @@ class ResidualUNet(nn.Module):
         input_img = x
             
         if self.normalize:
-            # Compute per-image mean/std (over C, H, W)
-            mean = x.mean(dim=(1, 2, 3), keepdim=True)
-            std = x.std(dim=(1, 2, 3), keepdim=True)
+            if self._nc is None:
+                # Compute per-image mean/std (over C, H, W)
+                mean = x.mean(dim=(1, 2, 3), keepdim=True)
+                std = x.std(dim=(1, 2, 3), keepdim=True)
 
-            # Normalize
-            x = (x - mean) / (std + 1e-6)
+                # Normalize
+                x = (x - mean) / (std + 1e-6)
+            else:
+                x = x / self._nc
 
         # Encoder
         d1 = self.down1(x)
@@ -143,7 +152,10 @@ class ResidualUNet(nn.Module):
 
         if self.normalize:
             # Undo normalization
-            output = output * std + mean
+            if self._nc is None:
+                output = output * std + mean
+            else:
+                output = output * self._nc
 
         if self.predict_background:
             # Residual output
@@ -236,6 +248,7 @@ class ResidualUNet(nn.Module):
                 "normalize": self.normalize,
                 "predict_background": self.predict_background,
                 "reduced_channels": self.reduced_channels,
+                "normalization_constant": self.normalization_constant,
             },
             # Training state
             "epoch": epoch,

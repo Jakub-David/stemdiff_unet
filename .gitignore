@@ -21,6 +21,7 @@ grid_search_results/
 
 # Models
 unet/model*.onnx
+models/
 
 # Examples
 examples/BGROUND/FFUNC
