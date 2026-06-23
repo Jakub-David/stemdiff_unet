@@ -235,35 +235,9 @@ def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_sca
 
     return intensity, target_profile
 
-def nearest_interpolate_1d(x, y, M):
-    """
-    Interpolates values from y (defined at coordinates x) 
-    onto a uniform grid of size M (coordinates 0 to M-1) 
-    using nearest-neighbor interpolation.
-    """
-    # 1. Create the implicit coordinates for the target tensor z
-    # shape: (M,) -> values: [0, 1, 2, ..., M-1]
-    z_coords = torch.arange(M, dtype=x.dtype, device=x.device)
-    
-    # 2. Compute absolute distances between every target coordinate and every source coordinate x
-    # We use broadcasting: (M, 1) - (1, N) -> (M, N)
-    distances = torch.abs(z_coords.unsqueeze(1) - x.unsqueeze(0))
-    
-    # 3. For each target coordinate, find the index of the nearest source coordinate in x
-    # shape: (M,)
-    nearest_indices = torch.argmin(distances, dim=1)
-    
-    # 4. Gather the corresponding values from y
-    z = y[nearest_indices]
-    
-    return z
-
-def resize_target(q, I, calibration_constant, nearest=False) -> torch.Tensor:
+def resize_target(q, I, calibration_constant) -> torch.Tensor:
     # 0. Define the number of bins
     N = torch.round(q[-1] * calibration_constant).int()
-
-    if nearest:
-        return nearest_interpolate_1d(q * calibration_constant, I, N)
 
     # 1. Round x and convert to long/int so it can be used as indices
     # We also clip the values to ensure they stay within [0, N-1]

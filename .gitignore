@@ -35,8 +35,6 @@ unet/old_nb/
 examples/STEMDIFF/
 old_nb/
 
-# Result images
-show_data/
-test_sum/
-
+# Results
+evaluation_results/
 unet/*results*.ipynb

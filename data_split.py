@@ -128,3 +128,34 @@ stemdiff.dbase.save_database(
     df_tio2r, 
     output_dir / "dbase" / f"db_test_tio2-r"
 )
+
+
+
+# free memory
+del train
+del val
+del test
+
+
+# Create dataset_all
+output_dir = Path("unet/dataset_all/")
+dbase_dir = output_dir / "dbase"
+output_dir.mkdir(exist_ok=True)
+dbase_dir.mkdir(exist_ok=True)
+paths.extend([
+    Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2"),
+    Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"),
+])
+names.extend([
+    "tio2-a",
+    "tio2-r"
+])
+train = {}
+print("\n\n")
+for p, n in zip(paths, names):
+    SDATA, DIFFIMAGES, df = load_cached(p, n)
+    train[n] = load_arrays(SDATA, df)
+    print(n, "train:", train[n].shape)
+    stemdiff.dbase.save_database(df, output_dir / "dbase" / f"db_train_{n}")
+
+save_h5(train, output_dir / "train.h5")

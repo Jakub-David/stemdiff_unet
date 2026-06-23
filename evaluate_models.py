@@ -8,8 +8,9 @@ import ediff as ed
 import pandas as pd
 import numpy as np
 import h5py
+import matplotlib.pyplot as plt
+import pickle
 from grid_search import (
-    kl_divergence, 
     reverse_kl_divergence, 
     symmetric_cross_entropy, 
     symmetric_mean_absolute_percentage_error,
@@ -17,6 +18,13 @@ from grid_search import (
 )
 
 def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: dict, deconv: int, visualize=False):
+    if bkg == 3:
+        current_results_dir = results_dir / "gaussian"
+    else:
+        current_results_dir = results_dir / bkgp["path"].stem
+    current_results_dir.mkdir(exist_ok=True)
+
+
     SDATA, DIFFIMAGES, df_all = load_cached(
         Path(samples[sample_name]), 
         sample_name,
@@ -32,37 +40,92 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         two_theta_range=(5, 100),
         peak_profile_sigma=0.03,
     )
-    # XRD.diffractogram = pd.read_csv(f"unet/dataset/{sample_name}", sep=r'\s+')
+    xrd_diff_path = Path(f"unet/dataset/{sample_name}")
+    if xrd_diff_path.exists():
+        XRD.diffractogram = pd.read_csv(xrd_diff_path, sep=r'\s+')
 
+    # create psf
+    if deconv == 1:
+        df_psf = df_all[(df_all.Peaks > 0)]
+        df_psf = df_psf.sort_values(by=['Peaks', 'S'], ascending=[True, True])
+        df_psf = df_psf[:100]
+        psf = sd.summ.sum_datafiles(
+            SDATA, 
+            DIFFIMAGES, 
+            df,
+            bkg=bkg, 
+            bkgp=bkgp,
+        )
+        c = psf.shape[0] // 2
+        cs = 20
+        psf = psf[c-cs:c+cs, c-cs:c+cs]
+        psf[psf < 100] = 0
+
+        plt.figure()
+        plt.imshow(psf, vmax=1)
+        plt.savefig(current_results_dir / f"{sample_name}_psf.png")
+        np.savetxt(current_results_dir / "psf", psf)
+        if visualize:
+            plt.show()
+    else:
+        psf = None
+
+
+    # sum datafiles
     summed = sd.summ.sum_datafiles(
         SDATA, 
         DIFFIMAGES, 
         df, 
         bkg=bkg, 
         bkgp=bkgp,
-        deconv=deconv
+        deconv=deconv,
+        deconvp={"num_iter": 10, "psf": psf}
     )
+
+    if sample_name in ["tbf3", "gdf3"]:
+        xrd_range = (0, 1.8)
+    else:
+        xrd_range = None
     ELD = create_profile(
         summed,
         XRD,
         (30, 800),
-        xrd_range=None,
-        show=visualize,
+        xrd_range=xrd_range,
+        show=False,
         center=None,
         in_file="examples/sum/center.txt",
     )
 
+    if calibration_constants is not None:
+        ELD.diffractogram.q = ELD.diffractogram.Pixels * calibration_constants[sample_name]
+
+    with open(current_results_dir / f"{sample_name}_eld_deconv{deconv}", "wb") as f:
+            pickle.dump(ELD, f)
+    plt.figure()
+    ELD.compare_with_XRD(
+        XRD, 
+        fine_tune=1, 
+        Xlim=(0.5, 12), 
+        CLI=not visualize,
+        out_file=current_results_dir / f"{sample_name}_deconv{deconv}.svg"
+    )
+
     eld_diff = ELD.diffractogram
     xrd_diff = XRD.diffractogram
+    eld_I = np.interp(xrd_diff.q, eld_diff.q, eld_diff.I)
+
+    plt.figure()
+    plt.plot(xrd_diff.q, xrd_diff.I, label="XRD")
+    plt.plot(xrd_diff.q, eld_I, label="ELD")
+    plt.legend()
+    plt.savefig(current_results_dir / f"{sample_name}_deconv{deconv}_interpolated.svg")
+
+    # if deconv == 1:
+    #     calibration_constants[sample_name] = ELD.calibration_constant
 
     scores = {}
     for metric in metrics:
-        if eld_diff.I.sum() < 1.2:
-            score = np.inf
-        else:
-            eld_I = np.interp(xrd_diff.q, eld_diff.q, eld_diff.I)
-            score = metric(xrd_diff.I, eld_I)
-        
+        score = metric(xrd_diff.I, eld_I)
         scores[metric.__name__] = score
 
     return scores
@@ -87,30 +150,31 @@ cif_paths = {
     "tio2-r": "DATA.STEMDIFF/cif/tio2_rutile_9015662.cif",
 }
 
-# xranges = {
-#     "au": (30, 800),
-#     "tbf3": (30, 800),
-#     "feo": (30, 800),
-#     "laf3": (30, 800),
-#     "gdf3": (30, 800),
-#     "tio2-a": (30, 800),
-#     "tio2-r": (30, 800),
-# }
+calibration_constants = {
+    'au': 0.03377241772151899, 
+    'tbf3': 0.031983907407407405, 
+    'feo': 0.031019912500000003, 
+    'laf3': 0.03087730158730159, 
+    'gdf3': 0.03332153703703704, 
+    'tio2-a': 0.03191196855385761, 
+    'tio2-r': 0.03171350474250266
+}
 
 models = {
     "2D": ResidualUNet.load("unet/runs/20260621_183607_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
-    "self sup": ResidualUNet.load("unet/runs/20260622_132820_self_sup_ncNone_lcw0.01_l1w0.001/residual_unet_epoch20.pt")
+    "Self Supervised": ResidualUNet.load("unet/runs/20260622_132820_self_sup_ncNone_lcw0.01_l1w0.001/residual_unet_epoch20.pt")
 }
 
 metrics = [
-    kl_divergence,
     reverse_kl_divergence,
     symmetric_cross_entropy,
     symmetric_mean_absolute_percentage_error,
 ]
 
 db_dir = Path("unet/dataset/dbase/")
-models_dir = Path("models")
+results_dir = Path("evaluation_results")
+results_dir.mkdir(exist_ok=True)
+models_dir = results_dir / "models"
 models_dir.mkdir(exist_ok=True)
 
 if __name__ == "__main__":
@@ -139,12 +203,14 @@ if __name__ == "__main__":
 
                 # Capture the metadata and unpack the scores dict
                 row = {
-                    "Method/Model": f"ONNX ({name})",
+                    "Method/Model": f"NN ({name})",
                     "Sample": sample_name,
                     "Deconv": deconv,
                     **scores
                 }
                 all_results.append(row)
+        
+        print(calibration_constants)
 
     print("Evaluating Gaussian")
     for sample_name in samples:
@@ -182,8 +248,8 @@ if __name__ == "__main__":
     df_mean = df.groupby(["Method/Model", "Deconv"]).mean(numeric_only=True).reset_index()
 
     # 4. Save the DataFrames to CSV files
-    df.to_csv("detailed_scores.csv", index=False)
-    df_mean.to_csv("mean_scores.csv", index=False)
+    df.to_csv(results_dir / "detailed_scores.csv", index=False)
+    df_mean.to_csv(results_dir / "mean_scores.csv", index=False)
 
     # Optional: Display the mean scores in the console
     print("--- Mean Scores Over Samples ---")
