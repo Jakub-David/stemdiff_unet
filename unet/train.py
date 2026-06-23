@@ -1,5 +1,5 @@
 from model import ResidualUNet
-from loss import CombinedLoss, RadialDistribution
+from loss import CombinedLoss
 import loss
 from data import *
 from eval import evaluate
@@ -35,12 +35,12 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
     train_dataset = STEMDataset(
         dataset_dir,
         "train.h5",
-        "train_target.h5" if include_targets else None,
+        "train_target.h5" if include_targets and dataset_dir != "dataset_all" else None,
         scale_factor,
         include_profiles
     )
     val_dataset = STEMDataset(
-        dataset_dir,
+        dataset_dir if dataset_dir != "dataset_all" else "dataset_filtered",
         "val.h5",
         "val_target.h5",
         scale_factor,
@@ -229,7 +229,7 @@ def train(config: dict, experiment_name=None):
             if interpolate_weights:
                 a = float(np.interp(epoch, [0, num_epochs], [1, loss_2d_final_w]))
                 b = 1 - a
-            loss = criterion(clean_pred, y, a, b)
+            loss = criterion(x, clean_pred, y, a, b)
 
             loss.backward()
             optimizer.step()

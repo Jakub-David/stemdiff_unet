@@ -77,10 +77,10 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
         if isinstance(criterion, CombinedLoss):
             if model.logspace:
                 loss, loss_2d, loss_1d, clean1d, target1d = \
-                    criterion(clean_pred.log1p(), t, a, b, return_parts=True)
+                    criterion(x, clean_pred.log1p(), t, a, b, return_parts=True)
             else:
                 loss, loss_2d, loss_1d, clean1d, target1d = \
-                    criterion(clean_pred, t, a, b, return_parts=True)
+                    criterion(x, clean_pred, t, a, b, return_parts=True)
             total_loss += loss
             if isinstance(loss_1d, torch.Tensor):
                 total_loss_1d += loss_1d

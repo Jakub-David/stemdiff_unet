@@ -62,26 +62,26 @@ class CombinedLoss(torch.nn.Module):
             k_l_hollow_1d = get_hollow_gaussian_1d(33, sigma_large=8.0, sigma_small=3.0, device=device)
 
             # Large Scale Layers (Horizontal & Vertical)
-            self.local_cons_reg_l_h = torch.nn.Conv2d(1, 1, kernel_size=(1, 33), padding=(0, 16), bias=False, device=device)
+            self.local_cons_reg_l_h = torch.nn.Conv2d(1, 1, kernel_size=(1, 33), padding=(0, 14), bias=False, device=device)
             self.local_cons_reg_l_h.weight.data = k_l_hollow_1d.view(1, 1, 1, 33)
             self.local_cons_reg_l_h.requires_grad_(False)
 
-            self.local_cons_reg_l_v = torch.nn.Conv2d(1, 1, kernel_size=(33, 1), padding=(16, 0), bias=False, device=device)
+            self.local_cons_reg_l_v = torch.nn.Conv2d(1, 1, kernel_size=(33, 1), padding=(14, 0), bias=False, device=device)
             self.local_cons_reg_l_v.weight.data = k_l_hollow_1d.view(1, 1, 33, 1)
             self.local_cons_reg_l_v.requires_grad_(False)
 
             # Small Scale Layers (Horizontal & Vertical)
-            self.local_cons_reg_s_h = torch.nn.Conv2d(1, 1, kernel_size=(1, k_s_size), padding=(0, k_s_size // 2), bias=False, device=device)
+            self.local_cons_reg_s_h = torch.nn.Conv2d(1, 1, kernel_size=(1, k_s_size), padding=(0, 0), bias=False, device=device)
             self.local_cons_reg_s_h.weight.data = k_s_1d.view(1, 1, 1, k_s_size)
             self.local_cons_reg_s_h.requires_grad_(False)
 
-            self.local_cons_reg_s_v = torch.nn.Conv2d(1, 1, kernel_size=(k_s_size, 1), padding=(k_s_size // 2, 0), bias=False, device=device)
+            self.local_cons_reg_s_v = torch.nn.Conv2d(1, 1, kernel_size=(k_s_size, 1), padding=(0, 0), bias=False, device=device)
             self.local_cons_reg_s_v.weight.data = k_s_1d.view(1, 1, k_s_size, 1)
             self.local_cons_reg_s_v.requires_grad_(False)
 
     def _small_means(self, img):
-        # means_s = self.local_cons_reg_s_v(self.local_cons_reg_s_h(img))
-        means_s = img
+        means_s = self.local_cons_reg_s_v(self.local_cons_reg_s_h(img))
+        # means_s = img
         return means_s
     
     def _masked_large_means(self, img, centers):
@@ -106,24 +106,30 @@ class CombinedLoss(torch.nn.Module):
         # 4. Dynamically re-normalize weights to match only valid pixels outside the peak
         return img_blur / (mask_blur + 1e-6)
 
-    def forward(self, x: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
-        p = y[1:]
+    def forward(self, orig: torch.Tensor, clean: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
+        if len(y) == 4:
+            p = y[1:]
+        else:
+            p = y
         centers = p[-1]
         y = y[0]
 
         if self.logspace and isinstance(y, torch.Tensor):
             y = torch.log1p(y)
 
+        if self.logspace:
+            orig = torch.log1p(orig)
+
         if self.loss_2d is not None and a > 0:
-            loss_2d = self.loss_2d(x, y)
+            loss_2d = self.loss_2d(clean, y)
         else:
             loss_2d = 0
             
         if self.loss_1d is not None and b > 0:
             if self.logspace:
-                x_exp = torch.expm1(x)
+                x_exp = torch.expm1(clean)
             else:
-                x_exp = x
+                x_exp = clean
 
             x1d, target1d = prepare_profiles(x_exp, p, self.individual_profiles, self.rad_dist, self.profile_scale)
             loss_1d = self.loss_1d(x1d, target1d)
@@ -133,25 +139,25 @@ class CombinedLoss(torch.nn.Module):
 
         if self.l1_reg_w > 0:
             # l1 norm + negative penalty
-            l1_reg = torch.mean(torch.abs(x)) + torch.sum(torch.relu(-x))
+            l1_reg = torch.mean(torch.abs(clean)) + torch.sum(torch.relu(-clean))
         else:
             l1_reg = 0
 
         if self.total_variation_w > 0:
-            tv = torchmetrics.functional.total_variation(x)
+            tv = torchmetrics.functional.total_variation(clean)
         else:
             tv = 0
 
         if self.local_cons_reg_w > 0:
-            means_x_s = self._small_means(x)
-            means_y_s = self._small_means(y)
+            means_clean_s = self._small_means(clean)
+            means_orig_s = self._small_means(orig)
 
-            means_x_l = self._masked_large_means(x, centers)
-            means_y_l = self._masked_large_means(y, centers)
+            means_clean_l = self._masked_large_means(clean, centers)
+            means_orig_l = self._masked_large_means(orig, centers)
 
-            lc_reg = torch.nn.functional.mse_loss(
-                means_x_l - means_x_s, 
-                means_y_l - means_y_s
+            lc_reg = torch.nn.functional.huber_loss(
+                means_clean_l - means_clean_s, 
+                means_orig_l - means_orig_s
             )
         else:
             lc_reg = 0

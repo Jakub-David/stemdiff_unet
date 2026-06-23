@@ -30,9 +30,9 @@ if __name__ == "__main__":
         # For "2D" dataset only used in logging
         "profile_scale": 1,
         # Initial learning rate
-        "lr": 1e-4, 
+        "lr": ..., 
         # Final learning rate (cosine decay)
-        "min_lr": 1e-5, 
+        "min_lr": ..., 
         # Number of training epochs
         "num_epochs": 20,
         # Log every n steps, n = -1 no logging
@@ -52,7 +52,7 @@ if __name__ == "__main__":
             # Normalize input (and denormalize output)
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
-            "normalization_constant": ...,
+            "normalization_constant": None,
             # Network inputs is log(input + 1), done before normalization
             "logspace": True,
             # If true, clean = input - output;
@@ -61,11 +61,13 @@ if __name__ == "__main__":
         },
     }
 
-    for l1 in [1e-1, 1e-2, 1e-3]:
-        for lc in [1e-1, 1e-2]:
-            for n in [11810, None]:
-                config["l1_regularization"] = l1
-                config["local_consistency_reg"] = lc
-                config["model_params"]["normalization_constant"] = n
-                exp_id = train(config, f"self_sup_nc{n}_lcw{lc}_l1w{l1}")
+    for w in range(6, 10):
+        lc = w / 10
+        l1 = 1 - lc
+        for lr in [1e-4, 1e-5]:
+            config["l1_regularization"] = l1
+            config["local_consistency_reg"] = lc
+            config["lr"] = lr
+            config["min_lr"] = lr / 10
+            exp_id = train(config, f"self_sup_lr{lr}_lcw{lc}_l1w{l1}")
     
