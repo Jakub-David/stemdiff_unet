@@ -55,32 +55,45 @@ class CombinedLoss(torch.nn.Module):
         self.local_cons_reg_w = local_cons_reg
         if local_cons_reg > 0:
             # Small scale: Tight Gaussian (sigma ~0.8 to 1.0). Just cracks the pixel noise.
-            k_s_size = 5
-            k_s_1d = get_gaussian_kernel_1d(k_s_size, sigma=1, device=device)
+            k_s_size = 3
+            k_s_1d = get_gaussian_kernel_1d(k_s_size, sigma=0.8, device=device)
 
             # Large scale: Hollow Gaussian (Donut). Looks completely around the peaks.
-            k_l_hollow_1d = get_hollow_gaussian_1d(33, sigma_large=8.0, sigma_small=3.0, device=device)
+            k_l_size = 13
+            # k_l_1d = get_hollow_gaussian_1d(k_l_size, sigma_large=8.0, sigma_small=3.0, device=device)
+            # k_l_1d = torch.ones(k_l_size, dtype=torch.float32, device=device) / k_l_size
+            k_l_1d = get_gaussian_kernel_1d(k_l_size, 2, device)
 
             # Large Scale Layers (Horizontal & Vertical)
-            self.local_cons_reg_l_h = torch.nn.Conv2d(1, 1, kernel_size=(1, 33), padding=(0, 14), bias=False, device=device)
-            self.local_cons_reg_l_h.weight.data = k_l_hollow_1d.view(1, 1, 1, 33)
+            self.local_cons_reg_l_h = torch.nn.Conv2d(1, 1, kernel_size=(1, k_l_size), padding="same", bias=False, device=device)
+            self.local_cons_reg_l_h.weight.data = k_l_1d.view(1, 1, 1, k_l_size)
             self.local_cons_reg_l_h.requires_grad_(False)
 
-            self.local_cons_reg_l_v = torch.nn.Conv2d(1, 1, kernel_size=(33, 1), padding=(14, 0), bias=False, device=device)
-            self.local_cons_reg_l_v.weight.data = k_l_hollow_1d.view(1, 1, 33, 1)
+            self.local_cons_reg_l_v = torch.nn.Conv2d(1, 1, kernel_size=(k_l_size, 1), padding="same", bias=False, device=device)
+            self.local_cons_reg_l_v.weight.data = k_l_1d.view(1, 1, k_l_size, 1)
             self.local_cons_reg_l_v.requires_grad_(False)
 
-            # Small Scale Layers (Horizontal & Vertical)
-            self.local_cons_reg_s_h = torch.nn.Conv2d(1, 1, kernel_size=(1, k_s_size), padding=(0, 0), bias=False, device=device)
-            self.local_cons_reg_s_h.weight.data = k_s_1d.view(1, 1, 1, k_s_size)
-            self.local_cons_reg_s_h.requires_grad_(False)
 
-            self.local_cons_reg_s_v = torch.nn.Conv2d(1, 1, kernel_size=(k_s_size, 1), padding=(0, 0), bias=False, device=device)
-            self.local_cons_reg_s_v.weight.data = k_s_1d.view(1, 1, k_s_size, 1)
-            self.local_cons_reg_s_v.requires_grad_(False)
+
+            k_s_2d = gaussian_kernel_2d(k_s_size, 1, device)
+            self.conv_s = torch.nn.Conv2d(1, 1, kernel_size=k_s_size, padding="same", bias=False, device=device)
+            self.conv_s.weight.data = k_s_2d.view(1, 1, k_s_size, k_s_size)
+
+            # k_l_size = 6
+            # k_l_2d = gaussian_kernel_2d(k_l_size, 2, device)
+            # self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, dilation=3, padding="same", bias=False, device=device)
+            # self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
+
+
+            # k_l_size = 9
+            # k_l_2d = gaussian_kernel_2d(k_l_size, 4, device)
+            # self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, padding="same", bias=False, device=device)
+            # self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
+
+            self.border_width = k_l_size // 2 + 3
 
     def _small_means(self, img):
-        means_s = self.local_cons_reg_s_v(self.local_cons_reg_s_h(img))
+        means_s = self.conv_s(img)
         # means_s = img
         return means_s
     
@@ -105,20 +118,26 @@ class CombinedLoss(torch.nn.Module):
         
         # 4. Dynamically re-normalize weights to match only valid pixels outside the peak
         return img_blur / (mask_blur + 1e-6)
+    
+        # return self.local_cons_reg_l_v(self.local_cons_reg_l_h(img))
+        # orig_size = (img.shape[-2], img.shape[-1])
+        # img = F.interpolate(img, scale_factor=0.25, mode='bilinear', align_corners=False)
+        # means =  self.conv_l(img)
+        # return F.interpolate(means, size=orig_size, mode='bilinear', align_corners=False)[:, :, 2:-2, 2:-2]
+
+        # return self.conv_l(img)
 
     def forward(self, orig: torch.Tensor, clean: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
         if len(y) == 4:
             p = y[1:]
+            y = y[0]
         else:
             p = y
+            y = None
         centers = p[-1]
-        y = y[0]
 
         if self.logspace and isinstance(y, torch.Tensor):
             y = torch.log1p(y)
-
-        if self.logspace:
-            orig = torch.log1p(orig)
 
         if self.loss_2d is not None and a > 0:
             loss_2d = self.loss_2d(clean, y)
@@ -139,7 +158,7 @@ class CombinedLoss(torch.nn.Module):
 
         if self.l1_reg_w > 0:
             # l1 norm + negative penalty
-            l1_reg = torch.mean(torch.abs(clean)) + torch.sum(torch.relu(-clean))
+            l1_reg = torch.mean(torch.abs(clean)) + 10 * torch.mean(torch.relu(-clean))
         else:
             l1_reg = 0
 
@@ -149,6 +168,14 @@ class CombinedLoss(torch.nn.Module):
             tv = 0
 
         if self.local_cons_reg_w > 0:
+            if self.logspace:
+                orig = torch.log1p(orig)
+
+            bw = self.border_width
+
+            # clean = clean[..., bw:-bw, bw:-bw]
+            # orig = orig[..., bw:-bw, bw:-bw]
+
             means_clean_s = self._small_means(clean)
             means_orig_s = self._small_means(orig)
 
@@ -156,8 +183,8 @@ class CombinedLoss(torch.nn.Module):
             means_orig_l = self._masked_large_means(orig, centers)
 
             lc_reg = torch.nn.functional.huber_loss(
-                means_clean_l - means_clean_s, 
-                means_orig_l - means_orig_s
+                (means_clean_l - means_clean_s)[..., bw:-bw, bw:-bw], 
+                (means_orig_l - means_orig_s)[..., bw:-bw, bw:-bw]
             )
         else:
             lc_reg = 0
@@ -406,6 +433,16 @@ class RadialDistribution(torch.nn.Module):
             intensity = intensity.squeeze(0)
 
         return self.radial_distance, intensity
+    
+def gaussian_kernel_2d(kernel_size, sigma, device):
+    x = torch.arange(kernel_size, device=device) - (kernel_size - 1) / 2
+    gauss_1d = torch.exp(-0.5 * (x / sigma) ** 2)
+    gauss_2d = torch.outer(gauss_1d, gauss_1d)
+    
+    # Normalize it to sum to 1
+    gauss_2d = gauss_2d / gauss_2d.sum()
+
+    return gauss_2d
     
 def get_gaussian_kernel_1d(kernel_size: int, sigma: float, device):
     x = torch.arange(kernel_size, device=device) - (kernel_size - 1) / 2

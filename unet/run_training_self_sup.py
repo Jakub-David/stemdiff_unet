@@ -45,7 +45,7 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": 4, 
+            "base_channels": 2, 
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
             "reduced_channels": False, 
@@ -54,20 +54,20 @@ if __name__ == "__main__":
             # Should be detectors max. value (11810). If None, use standardization
             "normalization_constant": None,
             # Network inputs is log(input + 1), done before normalization
-            "logspace": True,
+            "logspace": False,
             # If true, clean = input - output;
             # otherwise, clean = output
-            "predict_background": True
+            "predict_background": False
         },
     }
 
-    for w in range(6, 10):
-        lc = w / 10
-        l1 = 1 - lc
-        for lr in [1e-4, 1e-5]:
+    for w in [ 0.8]:
+        lc = w
+        l1 = round(1 - lc, 4)
+        for lr in [1e-3]:
             config["l1_regularization"] = l1
             config["local_consistency_reg"] = lc
             config["lr"] = lr
             config["min_lr"] = lr / 10
-            exp_id = train(config, f"self_sup_lr{lr}_lcw{lc}_l1w{l1}")
+            exp_id = train(config, f"self_sup_lr{lr}_lcw{lc}_l1w{l1}_no_center_mask")
     

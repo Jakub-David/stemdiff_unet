@@ -11,7 +11,7 @@ class DoubleConv(nn.Module):
         # Branch 1: First conv layer group
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.InstanceNorm2d(out_channels, affine=True),
+            # nn.InstanceNorm2d(out_channels, affine=True),
             nn.LeakyReLU(inplace=True),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
         )
@@ -19,7 +19,7 @@ class DoubleConv(nn.Module):
         # Branch 2: Second conv layer group
         self.conv2 = nn.Sequential(
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.InstanceNorm2d(out_channels, affine=True),
+            # nn.InstanceNorm2d(out_channels, affine=True),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
         )
         
@@ -106,9 +106,6 @@ class ResidualUNet(nn.Module):
         self.final = nn.Conv2d(c1 + in_channels, in_channels, kernel_size=1)
 
     def forward(self, x):
-        if self.logspace:
-            x = torch.log1p(x)
-
         input_img = x
             
         if self.normalize:
@@ -159,29 +156,14 @@ class ResidualUNet(nn.Module):
 
         if self.predict_background:
             # Residual output
-            if self.training:
-                background = torch.nn.functional.relu(output)
-                clean = torch.nn.functional.relu(input_img - background)
-
-                # background = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
-                # clean = torch.nn.functional.leaky_relu(input_img - background, negative_slope=0.01)
-
-                # background = torch.nn.functional.softplus(output)
-                # clean = torch.nn.functional.softplus(input_img - background)
-            else:
-                background = torch.relu(output)
-                clean = torch.relu(input_img - background)
-                # background = torch.nn.functional.softplus(output)
-                # clean = torch.nn.functional.softplus(input_img - background)
+            background = torch.relu(output)
+            clean = torch.relu(input_img - background)
         else:
-            if self.training:
-                clean = torch.nn.functional.leaky_relu(output, negative_slope=0.01)
-            else:
-                clean = torch.clamp_max_(output, input_img)
-                clean = torch.clamp_min_(output, 0)
+            clean = torch.nn.functional.relu(output)
+            clean = torch.clamp_max(clean, input_img)
 
-        if self.logspace and not self.training:
-            clean = torch.expm1(clean)
+        if self.logspace and self.training:
+            return torch.log1p(clean)
 
         return clean
     
