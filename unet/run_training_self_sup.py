@@ -19,7 +19,7 @@ if __name__ == "__main__":
         # Includes penalty negative  values
         "l1_regularization": ...,
         # Total variation reg
-        "total_variation": 0,
+        "total_variation": 1e-7,
         # Local consistency reg
         "local_consistency_reg": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         # Final learning rate (cosine decay)
         "min_lr": ..., 
         # Number of training epochs
-        "num_epochs": 20,
+        "num_epochs": 40,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -57,7 +57,7 @@ if __name__ == "__main__":
             "logspace": False,
             # If true, clean = input - output;
             # otherwise, clean = output
-            "predict_background": False
+            "predict_background": True
         },
     }
 

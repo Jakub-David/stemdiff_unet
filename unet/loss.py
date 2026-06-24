@@ -98,28 +98,29 @@ class CombinedLoss(torch.nn.Module):
         return means_s
     
     def _masked_large_means(self, img, centers):
-        # 0. Create masks
-        mask = generate_batched_smooth_mask(
-            img.shape[-2], 
-            img.shape[-1], 
-            centers, 
-            sigma=4, 
-            device=img.device
-        )
+        # # 0. Create masks
+        # mask = generate_batched_smooth_mask(
+        #     img.shape[-2], 
+        #     img.shape[-1], 
+        #     centers, 
+        #     sigma=2, 
+        #     device=img.device
+        # )
 
-        # 1. Neutralize the intense central peaks across the batch
-        masked_img = img * mask
+        # # 1. Neutralize the intense central peaks across the batch
+        # masked_img = img * mask
         
-        # 2. Blur the masked image using your separable layers
-        img_blur = self.local_cons_reg_l_v(self.local_cons_reg_l_h(masked_img))
+        # # 2. Blur the masked image using your separable layers
+        # img_blur = self.local_cons_reg_l_v(self.local_cons_reg_l_h(masked_img))
         
-        # 3. Blur the masks themselves to see how much of the Gaussian footprint hit valid background
-        mask_blur = self.local_cons_reg_l_v(self.local_cons_reg_l_h(mask))
+        # # 3. Blur the masks themselves to see how much of the Gaussian footprint hit valid background
+        # mask_blur = self.local_cons_reg_l_v(self.local_cons_reg_l_h(mask))
         
-        # 4. Dynamically re-normalize weights to match only valid pixels outside the peak
-        return img_blur / (mask_blur + 1e-6)
+        # # 4. Dynamically re-normalize weights to match only valid pixels outside the peak
+        # return img_blur / (mask_blur + 1e-6)
     
-        # return self.local_cons_reg_l_v(self.local_cons_reg_l_h(img))
+        return self.local_cons_reg_l_v(self.local_cons_reg_l_h(img))
+    
         # orig_size = (img.shape[-2], img.shape[-1])
         # img = F.interpolate(img, scale_factor=0.25, mode='bilinear', align_corners=False)
         # means =  self.conv_l(img)
@@ -163,7 +164,7 @@ class CombinedLoss(torch.nn.Module):
             l1_reg = 0
 
         if self.total_variation_w > 0:
-            tv = torchmetrics.functional.total_variation(clean)
+            tv = torchmetrics.functional.total_variation(clean, reduction="mean")
         else:
             tv = 0
 
@@ -173,19 +174,25 @@ class CombinedLoss(torch.nn.Module):
 
             bw = self.border_width
 
-            # clean = clean[..., bw:-bw, bw:-bw]
-            # orig = orig[..., bw:-bw, bw:-bw]
-
             means_clean_s = self._small_means(clean)
             means_orig_s = self._small_means(orig)
 
             means_clean_l = self._masked_large_means(clean, centers)
             means_orig_l = self._masked_large_means(orig, centers)
 
-            lc_reg = torch.nn.functional.huber_loss(
-                (means_clean_l - means_clean_s)[..., bw:-bw, bw:-bw], 
-                (means_orig_l - means_orig_s)[..., bw:-bw, bw:-bw]
-            )
+            # Step 1: Compute absolute differences between features
+            diff_clean = (means_clean_l - means_clean_s)[..., bw:-bw, bw:-bw]
+            diff_orig = (means_orig_l - means_orig_s)[..., bw:-bw, bw:-bw]
+            abs_error = torch.abs(diff_clean - diff_orig)
+
+            # Step 2: Define noise floor threshold (Epsilon)
+            noise_epsilon = 2.0 
+
+            # Step 3: Zero out any penalties within the noise threshold
+            sparse_error = torch.relu(abs_error - noise_epsilon)
+
+            # Step 4: Apply Huber/MSE style penalty to errors that exceed the threshold
+            lc_reg = torch.mean(sparse_error) 
         else:
             lc_reg = 0
 
