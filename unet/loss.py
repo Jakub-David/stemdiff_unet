@@ -54,79 +54,18 @@ class CombinedLoss(torch.nn.Module):
         self.total_variation_w = total_variation
         self.local_cons_reg_w = local_cons_reg
         if local_cons_reg > 0:
-            # Small scale: Tight Gaussian (sigma ~0.8 to 1.0). Just cracks the pixel noise.
+
             k_s_size = 3
-            k_s_1d = get_gaussian_kernel_1d(k_s_size, sigma=0.8, device=device)
-
-            # Large scale: Hollow Gaussian (Donut). Looks completely around the peaks.
-            k_l_size = 13
-            # k_l_1d = get_hollow_gaussian_1d(k_l_size, sigma_large=8.0, sigma_small=3.0, device=device)
-            # k_l_1d = torch.ones(k_l_size, dtype=torch.float32, device=device) / k_l_size
-            k_l_1d = get_gaussian_kernel_1d(k_l_size, 2, device)
-
-            # Large Scale Layers (Horizontal & Vertical)
-            self.local_cons_reg_l_h = torch.nn.Conv2d(1, 1, kernel_size=(1, k_l_size), padding="same", bias=False, device=device)
-            self.local_cons_reg_l_h.weight.data = k_l_1d.view(1, 1, 1, k_l_size)
-            self.local_cons_reg_l_h.requires_grad_(False)
-
-            self.local_cons_reg_l_v = torch.nn.Conv2d(1, 1, kernel_size=(k_l_size, 1), padding="same", bias=False, device=device)
-            self.local_cons_reg_l_v.weight.data = k_l_1d.view(1, 1, k_l_size, 1)
-            self.local_cons_reg_l_v.requires_grad_(False)
-
-
-
             k_s_2d = gaussian_kernel_2d(k_s_size, 1, device)
             self.conv_s = torch.nn.Conv2d(1, 1, kernel_size=k_s_size, padding="same", bias=False, device=device)
             self.conv_s.weight.data = k_s_2d.view(1, 1, k_s_size, k_s_size)
 
-            # k_l_size = 6
-            # k_l_2d = gaussian_kernel_2d(k_l_size, 2, device)
-            # self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, dilation=3, padding="same", bias=False, device=device)
-            # self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
-
-
-            # k_l_size = 9
-            # k_l_2d = gaussian_kernel_2d(k_l_size, 4, device)
-            # self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, padding="same", bias=False, device=device)
-            # self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
-
-            self.border_width = k_l_size // 2 + 3
-
-    def _small_means(self, img):
-        means_s = self.conv_s(img)
-        # means_s = img
-        return means_s
-    
-    def _masked_large_means(self, img, centers):
-        # # 0. Create masks
-        # mask = generate_batched_smooth_mask(
-        #     img.shape[-2], 
-        #     img.shape[-1], 
-        #     centers, 
-        #     sigma=2, 
-        #     device=img.device
-        # )
-
-        # # 1. Neutralize the intense central peaks across the batch
-        # masked_img = img * mask
-        
-        # # 2. Blur the masked image using your separable layers
-        # img_blur = self.local_cons_reg_l_v(self.local_cons_reg_l_h(masked_img))
-        
-        # # 3. Blur the masks themselves to see how much of the Gaussian footprint hit valid background
-        # mask_blur = self.local_cons_reg_l_v(self.local_cons_reg_l_h(mask))
-        
-        # # 4. Dynamically re-normalize weights to match only valid pixels outside the peak
-        # return img_blur / (mask_blur + 1e-6)
-    
-        return self.local_cons_reg_l_v(self.local_cons_reg_l_h(img))
-    
-        # orig_size = (img.shape[-2], img.shape[-1])
-        # img = F.interpolate(img, scale_factor=0.25, mode='bilinear', align_corners=False)
-        # means =  self.conv_l(img)
-        # return F.interpolate(means, size=orig_size, mode='bilinear', align_corners=False)[:, :, 2:-2, 2:-2]
-
-        # return self.conv_l(img)
+            k_l_size = 4
+            self.border_width = k_l_size + 3
+            k_l_2d = gaussian_kernel_2d(k_l_size, 2, device)
+            # k_l_2d = torch.ones((k_l_size, k_l_size), dtype=torch.float32, device=device) / (k_l_size ** 2)
+            self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, dilation=2, padding="same", bias=False, device=device)
+            self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
 
     def forward(self, orig: torch.Tensor, clean: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
         if len(y) == 4:
@@ -135,7 +74,6 @@ class CombinedLoss(torch.nn.Module):
         else:
             p = y
             y = None
-        centers = p[-1]
 
         if self.logspace and isinstance(y, torch.Tensor):
             y = torch.log1p(y)
@@ -174,11 +112,11 @@ class CombinedLoss(torch.nn.Module):
 
             bw = self.border_width
 
-            means_clean_s = self._small_means(clean)
-            means_orig_s = self._small_means(orig)
+            means_clean_s = self.conv_s(clean)
+            means_orig_s = self.conv_s(orig)
 
-            means_clean_l = self._masked_large_means(clean, centers)
-            means_orig_l = self._masked_large_means(orig, centers)
+            means_clean_l = self.conv_l(clean)
+            means_orig_l = self.conv_l(orig)
 
             # Step 1: Compute absolute differences between features
             diff_clean = (means_clean_l - means_clean_s)[..., bw:-bw, bw:-bw]
@@ -186,7 +124,7 @@ class CombinedLoss(torch.nn.Module):
             abs_error = torch.abs(diff_clean - diff_orig)
 
             # Step 2: Define noise floor threshold (Epsilon)
-            noise_epsilon = 2.0 
+            noise_epsilon = 1.0 
 
             # Step 3: Zero out any penalties within the noise threshold
             sparse_error = torch.relu(abs_error - noise_epsilon)
@@ -450,76 +388,3 @@ def gaussian_kernel_2d(kernel_size, sigma, device):
     gauss_2d = gauss_2d / gauss_2d.sum()
 
     return gauss_2d
-    
-def get_gaussian_kernel_1d(kernel_size: int, sigma: float, device):
-    x = torch.arange(kernel_size, device=device) - (kernel_size - 1) / 2
-    gauss_1d = torch.exp(-0.5 * (x / sigma) ** 2)
-    return gauss_1d / gauss_1d.sum()
-
-def get_hollow_gaussian_1d(kernel_size: int, sigma_large: float, sigma_small: float, device):
-    x = torch.arange(kernel_size, device=device) - (kernel_size - 1) / 2
-    
-    # Calculate the large context and the small center "hole"
-    gauss_large = torch.exp(-0.5 * (x / sigma_large) ** 2)
-    gauss_large /= gauss_large.sum()
-    
-    gauss_small = torch.exp(-0.5 * (x / sigma_small) ** 2)
-    gauss_small /= gauss_small.sum()
-    
-    # Subtract to create the hole, then re-normalize
-    hollow_1d = gauss_large - 0.5 * gauss_small # Adjust 0.5 to make the center hole deeper/shallower
-    hollow_1d = torch.clamp(hollow_1d, min=0) # Keep weights positive
-    return hollow_1d / hollow_1d.sum()
-
-def generate_batched_smooth_mask(x_dim, y_dim, centers, sigma, device):
-    """
-    Generates a batch of masks with a smooth hole centered at specified (x, y) coordinates.
-    For tensors shaped as (B, C, X, Y).
-    
-    Args:
-        x_dim (int): The size of the X dimension (dim 2).
-        y_dim (int): The size of the Y dimension (dim 3).
-        centers (Tensor): Target center coordinates of shape (B, 2) -> (x, y).
-        sigma (float): Radius/spread of the hole.
-        device: Torch device string or object.
-    """
-    B = centers.shape[0]
-    
-    # 1. Create 1D grids matching the X and Y axes
-    x_grid = torch.arange(x_dim, dtype=torch.float32, device=device).view(1, x_dim, 1) # Broadcasts over B and Y
-    y_grid = torch.arange(y_dim, dtype=torch.float32, device=device).view(1, 1, y_dim) # Broadcasts over B and X
-    
-    # 2. Extract centers and reshape to match the grid dimensions
-    # centers[:, 0] is X -> aligns with x_grid (dim 1 of the grid)
-    # centers[:, 1] is Y -> aligns with y_grid (dim 2 of the grid)
-    center_x = centers[:, 0].reshape(B, 1, 1)
-    center_y = centers[:, 1].reshape(B, 1, 1)
-    
-    # 3. Calculate squared distance matrix using the modified axes
-    # The resulting shape will be (B, x_dim, y_dim)
-    distance_squared = (x_grid - center_x) ** 2 + (y_grid - center_y) ** 2
-    
-    # 4. Generate the inverse Gaussian hole (0 at center, fading smoothly to 1)
-    smooth_hole = 1.0 - torch.exp(-0.5 * distance_squared / (sigma ** 2))
-    
-    # 5. Return with the channel dimension inserted to match (B, 1, X, Y)
-    return smooth_hole.unsqueeze(1)
-
-def masked_large_mean_batched(img, mask, layer_h, layer_v):
-    """
-    Args:
-        img (Tensor): Batched input images (B, 1, H, W)
-        mask (Tensor): Batched generated masks (B, 1, H, W)
-        layer_h, layer_v: Your separable local_cons_reg_l horizontal/vertical layers.
-    """
-    # 1. Neutralize the intense central peaks across the batch
-    masked_img = img * mask
-    
-    # 2. Blur the masked image using your separable layers
-    img_blur = layer_v(layer_h(masked_img))
-    
-    # 3. Blur the masks themselves to see how much of the Gaussian footprint hit valid background
-    mask_blur = layer_v(layer_h(mask))
-    
-    # 4. Dynamically re-normalize weights to match only valid pixels outside the peak
-    return img_blur / (mask_blur + 1e-6)
