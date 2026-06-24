@@ -97,11 +97,15 @@ class CombinedLoss(torch.nn.Module):
 
         if self.l1_reg_w > 0:
             # l1 norm + negative penalty
-            l1_reg = torch.mean(torch.abs(clean)) + 10 * torch.mean(torch.relu(-clean))
+            l1_reg = torch.nn.functional.huber_loss(
+                torch.abs(clean),
+                torch.zeros_like(clean)
+            ) + 10 * torch.mean(torch.relu(-clean))
         else:
             l1_reg = 0
 
         if self.total_variation_w > 0:
+            # use mean reduction to keep scale closer to other losses
             tv = torchmetrics.functional.total_variation(clean, reduction="mean")
         else:
             tv = 0
@@ -112,25 +116,23 @@ class CombinedLoss(torch.nn.Module):
 
             bw = self.border_width
 
+            # Calculate means
             means_clean_s = self.conv_s(clean)
             means_orig_s = self.conv_s(orig)
 
             means_clean_l = self.conv_l(clean)
             means_orig_l = self.conv_l(orig)
 
-            # Step 1: Compute absolute differences between features
+            # Compute absolute differences between features and remove borders
             diff_clean = (means_clean_l - means_clean_s)[..., bw:-bw, bw:-bw]
             diff_orig = (means_orig_l - means_orig_s)[..., bw:-bw, bw:-bw]
+
+            # Compute loss
             abs_error = torch.abs(diff_clean - diff_orig)
-
-            # Step 2: Define noise floor threshold (Epsilon)
-            noise_epsilon = 1.0 
-
-            # Step 3: Zero out any penalties within the noise threshold
-            sparse_error = torch.relu(abs_error - noise_epsilon)
-
-            # Step 4: Apply Huber/MSE style penalty to errors that exceed the threshold
-            lc_reg = torch.mean(sparse_error) 
+            lc_reg = torch.nn.functional.huber_loss(
+                abs_error, 
+                torch.zeros_like(abs_error), 
+            )
         else:
             lc_reg = 0
 

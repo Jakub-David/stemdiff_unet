@@ -11,7 +11,7 @@ class DoubleConv(nn.Module):
         # Branch 1: First conv layer group
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            # nn.InstanceNorm2d(out_channels, affine=True),
+            nn.InstanceNorm2d(out_channels, affine=True),
             nn.LeakyReLU(inplace=True),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
         )
@@ -19,7 +19,7 @@ class DoubleConv(nn.Module):
         # Branch 2: Second conv layer group
         self.conv2 = nn.Sequential(
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            # nn.InstanceNorm2d(out_channels, affine=True),
+            nn.InstanceNorm2d(out_channels, affine=True),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
         )
         
@@ -60,11 +60,6 @@ class ResidualUNet(nn.Module):
         self.predict_background = predict_background
         self.reduced_channels = reduced_channels
         self.normalization_constant = normalization_constant
-
-        if self.logspace and normalization_constant is not None:
-            self._nc = np.log1p(normalization_constant)
-        else:
-            self._nc = normalization_constant
 
         if reduced_channels:
             c1 = base_channels
@@ -117,7 +112,7 @@ class ResidualUNet(nn.Module):
                 # Normalize
                 x = (x - mean) / (std + 1e-6)
             else:
-                x = x / self._nc
+                x = x / self.normalization_constant
 
         # Encoder
         d1 = self.down1(x)
@@ -152,7 +147,7 @@ class ResidualUNet(nn.Module):
             if self._nc is None:
                 output = output * std + mean
             else:
-                output = output * self._nc
+                output = output * self.normalization_constant
 
         if self.predict_background:
             # Residual output
