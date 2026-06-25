@@ -19,7 +19,7 @@ if __name__ == "__main__":
         # Includes penalty negative  values
         "l1_regularization": ...,
         # Total variation reg
-        "total_variation": 1e-7,
+        "total_variation": ...,
         # Local consistency reg
         "local_consistency_reg": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         # Final learning rate (cosine decay)
         "min_lr": ..., 
         # Number of training epochs
-        "num_epochs": 40,
+        "num_epochs": 20,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -61,13 +61,14 @@ if __name__ == "__main__":
         },
     }
 
-    for w in [ 0.8]:
-        lc = w
-        l1 = round(1 - lc, 4)
-        for lr in [1e-3]:
-            config["l1_regularization"] = l1
-            config["local_consistency_reg"] = lc
-            config["lr"] = lr
-            config["min_lr"] = lr / 10
-            exp_id = train(config, f"self_sup_lr{lr}_lcw{lc}_l1w{l1}_no_center_mask")
-    
+    for lc in [0.5, 0.55]:
+        for tv in [0]:
+            l1 = 1 - lc - tv
+            for lr in [8e-4, 7e-4]:
+                config["l1_regularization"] = l1
+                config["local_consistency_reg"] = lc
+                config["total_variation"] = tv
+                config["lr"] = lr
+                config["min_lr"] = lr / 5
+                exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_tv{tv}_bc2_norm_bkg_region")
+

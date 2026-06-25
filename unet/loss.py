@@ -5,7 +5,7 @@ import numpy as np
 import ediff
 
 class ReverseKLDivLoss(torch.nn.Module):
-    def __init__(self, epsilon = 1e-5, *args, **kwargs):
+    def __init__(self, epsilon = 1e-12, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.kl_div = torch.nn.KLDivLoss(reduction="batchmean")
         self.epsilon = epsilon
@@ -22,8 +22,8 @@ class ReverseKLDivLoss(torch.nn.Module):
         prediction = prediction + self.epsilon
 
         # 3. Normalize
-        target = target / target.sum(dim=0, keepdim=True)
-        prediction = prediction / prediction.sum(dim=0, keepdim=True)
+        target = target / target.sum(dim=-1, keepdim=True)
+        prediction = prediction / prediction.sum(dim=-1, keepdim=True)
 
         # 4. Compute KL Divergence with reversed arguments
         return self.kl_div(target.log(), prediction)
@@ -98,7 +98,7 @@ class CombinedLoss(torch.nn.Module):
         if self.l1_reg_w > 0:
             # l1 norm + negative penalty
             l1_reg = torch.nn.functional.huber_loss(
-                torch.abs(clean),
+                clean,
                 torch.zeros_like(clean)
             ) + 10 * torch.mean(torch.relu(-clean))
         else:
@@ -128,10 +128,10 @@ class CombinedLoss(torch.nn.Module):
             diff_orig = (means_orig_l - means_orig_s)[..., bw:-bw, bw:-bw]
 
             # Compute loss
-            abs_error = torch.abs(diff_clean - diff_orig)
+            error = diff_clean - diff_orig
             lc_reg = torch.nn.functional.huber_loss(
-                abs_error, 
-                torch.zeros_like(abs_error), 
+                error, 
+                torch.zeros_like(error), 
             )
         else:
             lc_reg = 0
