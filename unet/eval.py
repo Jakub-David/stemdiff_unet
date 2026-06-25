@@ -1,5 +1,5 @@
 import torch
-from loss import CombinedLoss
+from loss import CombinedLoss, ReverseKLDivLoss
 
 def psnr(pred, target, max_val=11810.0):
     """
@@ -53,9 +53,12 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
     total_loss_2d = 0.0
     total_entropy = 0.0
     total_entropy_delta = 0.0
+    total_rkl = 0.0
     total_images = 0
     total_batches = 0
     examples = []
+
+    rkl = ReverseKLDivLoss()
 
     # ensure 1d profile is calculated
     if b == 0:
@@ -86,6 +89,8 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
                 total_loss_1d += loss_1d
             if isinstance(loss_2d, torch.Tensor):
                 total_loss_2d += loss_2d
+            
+            total_rkl += rkl(clean1d, target1d)
         elif criterion is not None:
             if model.logspace:
                 loss = criterion(clean_pred.log1p(), y.log1p())
@@ -132,6 +137,8 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
             ) / total_images
     elif criterion is not None:
         results["avg_loss"] = (total_loss.item() / total_images) / img_pixels
+
+    results["reverse_kl_div"] = total_rkl.item() / total_batches # assume 1 profile per batch
 
     results["output_entropy"] = total_entropy.item() / total_images
     results["entropy_delta"] = total_entropy_delta.item() / total_images

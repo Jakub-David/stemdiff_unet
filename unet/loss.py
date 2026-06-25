@@ -67,6 +67,23 @@ class CombinedLoss(torch.nn.Module):
             self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, dilation=2, padding="same", bias=False, device=device)
             self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
 
+
+            h, w = 256, 256
+            cy, cx = h // 2, w // 2
+            r = round(h / 2.5)  # Safe radius to avoid the central peak
+
+            bg_mask = torch.ones((h, w), dtype=torch.bool, device=device)
+            bg_mask[cy-r:cy+r, cx-r:cx+r] = False
+            # Zero out the top 2 and bottom 2 rows (entire width)
+            bg_mask[..., :2, :] = False
+            bg_mask[..., -2:, :] = False
+
+            # Zero out the left 2 and right 2 columns (entire height)
+            bg_mask[..., :, :2] = False
+            bg_mask[..., :, -2:] = False
+
+            self.register_buffer("bg_mask", bg_mask.flatten())
+
     def forward(self, orig: torch.Tensor, clean: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
         if len(y) == 4:
             p = y[1:]
@@ -111,6 +128,7 @@ class CombinedLoss(torch.nn.Module):
             tv = 0
 
         if self.local_cons_reg_w > 0:
+            # 1. Calculate error
             if self.logspace:
                 orig = torch.log1p(orig)
 
@@ -127,11 +145,28 @@ class CombinedLoss(torch.nn.Module):
             diff_clean = (means_clean_l - means_clean_s)[..., bw:-bw, bw:-bw]
             diff_orig = (means_orig_l - means_orig_s)[..., bw:-bw, bw:-bw]
 
-            # Compute loss
-            error = diff_clean - diff_orig
+            # Absolute error
+            abs_error = torch.abs(diff_clean - diff_orig)
+
+            # 2. Estimate background noise
+            # Extract the background pixels of the original image to find this sample's specific noise scale
+            orig_flat = orig.flatten(start_dim=1)
+            bg_pixels = orig_flat[..., self.bg_mask]
+
+            # Calculate the Standard Deviation of the background for each image in the batch
+            # This acts as a per-sample, self-tuning noise metric
+            noise_std = bg_pixels.std(dim=-1, keepdim=True).unsqueeze(-1)  # Shape: [B, C, 1, 1]
+
+            # Just using noise std is too aggressive
+            noise_std = noise_std * 0.5
+
+            # 3. Zero out any penalties within the dynamic noise threshold
+            sparse_error = torch.relu(abs_error - noise_std)
+
+            # 4. Compute loss
             lc_reg = torch.nn.functional.huber_loss(
-                error, 
-                torch.zeros_like(error), 
+                sparse_error, 
+                torch.zeros_like(sparse_error), 
             )
         else:
             lc_reg = 0

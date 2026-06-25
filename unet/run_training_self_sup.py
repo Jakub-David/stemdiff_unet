@@ -61,7 +61,7 @@ if __name__ == "__main__":
         },
     }
 
-    for lc in [0.5, 0.55]:
+    for lc in [0.55, 0.6]:
         for tv in [0]:
             l1 = 1 - lc - tv
             for lr in [8e-4, 7e-4]:
@@ -70,5 +70,5 @@ if __name__ == "__main__":
                 config["total_variation"] = tv
                 config["lr"] = lr
                 config["min_lr"] = lr / 5
-                exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_tv{tv}_bc2_norm_bkg_region")
+                exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_tv{tv}_bc2_sparse_error_border_std0.5")
 

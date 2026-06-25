@@ -105,28 +105,11 @@ class ResidualUNet(nn.Module):
             
         if self.normalize:
             if self.normalization_constant is None:
-                # 1. Define your dimensions and center zone
-                h, w = x.shape[-2], x.shape[-1]
-                cy, cx = h // 2, w // 2
-                r = h // 4
+                # Compute per-image mean/std (over C, H, W)
+                mean = x.mean(dim=(1, 2, 3), keepdim=True)
+                std = x.std(dim=(1, 2, 3), keepdim=True)
 
-                # 2. Create the spatial mask (True for background, False for central peak)
-                bg_mask = torch.ones((h, w), dtype=torch.bool, device=x.device)
-                bg_mask[cy-r:cy+r, cx-r:cx+r] = False
-
-                # 3. Flatten the spatial dimensions of x from [B, C, H, W] to [B, C, H*W]
-                x_flat = x.flatten(start_dim=2)
-                mask_flat = bg_mask.flatten() # Size: [H*W]
-
-                # 4. Filter out the background pixels using advanced indexing on the last dimension
-                # This extracts only the background pixels, resulting in shape [B, C, num_bg_pixels]
-                bg_pixels = x_flat[..., mask_flat]
-
-                # 5. Compute mean and std over the background pixel dimension (dim=-1)
-                mean = bg_pixels.mean(dim=-1, keepdim=True).unsqueeze(-1) # Shape: [B, C, 1, 1]
-                std = bg_pixels.std(dim=-1, keepdim=True).unsqueeze(-1)   # Shape: [B, C, 1, 1]
-
-                # 6. Safely normalize the original x
+                # Normalize
                 x = (x - mean) / (std + 1e-6)
             else:
                 x = x / self.normalization_constant
