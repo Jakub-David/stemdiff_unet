@@ -61,6 +61,11 @@ class ResidualUNet(nn.Module):
         self.reduced_channels = reduced_channels
         self.normalization_constant = normalization_constant
 
+        if self.logspace and normalization_constant is not None:
+            self._nc = np.log1p(normalization_constant)
+        else:
+            self._nc = normalization_constant
+
         if reduced_channels:
             c1 = base_channels
             c2 = base_channels + 1
@@ -101,10 +106,13 @@ class ResidualUNet(nn.Module):
         self.final = nn.Conv2d(c1 + in_channels, in_channels, kernel_size=1)
 
     def forward(self, x):
+        if self.logspace:
+            x = torch.log1p(x)
+
         input_img = x
             
         if self.normalize:
-            if self.normalization_constant is None:
+            if self._nc is None:
                 # Compute per-image mean/std (over C, H, W)
                 mean = x.mean(dim=(1, 2, 3), keepdim=True)
                 std = x.std(dim=(1, 2, 3), keepdim=True)
@@ -112,7 +120,7 @@ class ResidualUNet(nn.Module):
                 # Normalize
                 x = (x - mean) / (std + 1e-6)
             else:
-                x = x / self.normalization_constant
+                x = x / self._nc
 
         # Encoder
         d1 = self.down1(x)
@@ -144,10 +152,10 @@ class ResidualUNet(nn.Module):
 
         if self.normalize:
             # Undo normalization
-            if self.normalization_constant is None:
+            if self._nc is None:
                 output = output * std + mean
             else:
-                output = output * self.normalization_constant
+                output = output * self._nc
 
         if self.predict_background:
             # Residual output
@@ -157,8 +165,8 @@ class ResidualUNet(nn.Module):
             clean = torch.nn.functional.relu(output)
             clean = torch.clamp_max(clean, input_img)
 
-        if self.logspace and self.training:
-            return torch.log1p(clean)
+        if self.logspace and not self.training:
+            clean = torch.expm1(clean)
 
         return clean
     
