@@ -113,11 +113,11 @@ class CombinedLoss(torch.nn.Module):
             loss_1d = 0
 
         if self.l1_reg_w > 0:
-            # l1 norm + negative penalty
+            # l1 norm
             l1_reg = torch.nn.functional.huber_loss(
                 clean,
                 torch.zeros_like(clean)
-            ) + 10 * torch.mean(torch.relu(-clean))
+            )
         else:
             l1_reg = 0
 

@@ -19,9 +19,10 @@ from grid_search import (
 
 def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: dict, deconv: int, visualize=False):
     if bkg == 3:
-        current_results_dir = results_dir / "gaussian"
+        run_name = "gaussian"
     else:
-        current_results_dir = results_dir / bkgp["path"].stem
+        run_name =  bkgp["path"].stem
+    current_results_dir = results_dir / run_name
     current_results_dir.mkdir(exist_ok=True)
 
 
@@ -29,7 +30,8 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         Path(samples[sample_name]), 
         sample_name,
         "unet/dataset/dbase",
-        f"db_test_{sample_name}"
+        # TODO: change back to test
+        f"db_val_{sample_name}"
     )
 
     df = filter_datafiles(df_all, 100)
@@ -40,9 +42,9 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         two_theta_range=(5, 100),
         peak_profile_sigma=0.03,
     )
-    xrd_diff_path = Path(f"unet/dataset/{sample_name}")
-    if xrd_diff_path.exists():
-        XRD.diffractogram = pd.read_csv(xrd_diff_path, sep=r'\s+')
+    # xrd_diff_path = Path(f"unet/dataset/{sample_name}")
+    # if xrd_diff_path.exists():
+    #     XRD.diffractogram = pd.read_csv(xrd_diff_path, sep=r'\s+')
 
     # create psf
     if deconv == 1:
@@ -62,7 +64,7 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         psf[psf < 100] = 0
 
         plt.figure()
-        plt.imshow(psf, vmax=1)
+        plt.imshow(np.log1p(psf), vmin=0, vmax=1)
         plt.savefig(current_results_dir / f"{sample_name}_psf.png")
         np.savetxt(current_results_dir / "psf", psf)
         if visualize:
@@ -83,7 +85,9 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
     )
 
     if sample_name in ["tbf3", "gdf3"]:
-        xrd_range = (0, 1.8)
+        xrd_range = (0, 1.9)
+    elif sample_name == "feo_shell":
+        xrd_range = (0, 2.2)
     else:
         xrd_range = None
     ELD = create_profile(
@@ -102,10 +106,11 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
     with open(current_results_dir / f"{sample_name}_eld_deconv{deconv}", "wb") as f:
             pickle.dump(ELD, f)
     plt.figure()
+    plt.title(run_name)
     ELD.compare_with_XRD(
         XRD, 
         fine_tune=1, 
-        Xlim=(0.5, 12), 
+        Xlim=(0.5, 14), 
         CLI=not visualize,
         out_file=current_results_dir / f"{sample_name}_deconv{deconv}.svg"
     )
@@ -134,6 +139,7 @@ samples = {
     "au": "DATA.STEMDIFF/1_AU/EX1.AU/DATA",
     "tbf3": "DATA.STEMDIFF/2_TBF3/VZ2.TBF3.R2",
     "feo": "DATA.STEMDIFF/3_FEO_PURE/FeO-Pure_Cimc",
+    "feo_shell": "DATA.STEMDIFF/FeO-Shell_Cimc",
     "laf3": "DATA.STEMDIFF/4_MARUSKA_LAF3/D_MARUSKA_C214",
     "gdf3": "DATA.STEMDIFF/X1_GDF3/VZ2.GDF3.R2",
     "tio2-a": "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2",
@@ -144,6 +150,7 @@ cif_paths = {
     "au": "DATA.STEMDIFF/cif/au_9008463.cif",
     "tbf3": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
     "feo": "DATA.STEMDIFF/cif/Fe3O4.cif",
+    "feo_shell": "DATA.STEMDIFF/cif/Fe3O4.cif",
     "laf3": "DATA.STEMDIFF/cif/laf3_9008114.cif",
     "gdf3": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
     "tio2-a": "DATA.STEMDIFF/cif/tio2_anatase_9015929.cif",
@@ -156,13 +163,15 @@ calibration_constants = {
     'feo': 0.031019912500000003, 
     'laf3': 0.03087730158730159, 
     'gdf3': 0.03332153703703704, 
-    'tio2-a': 0.03191196855385761, 
-    'tio2-r': 0.03171350474250266
+    'tio2-a': 0.03191196428571429, 
+    'tio2-r': 0.03171350819672131, 
+    'feo_shell': 0.031111495408000765 * 0.99
 }
 
 models = {
-    "2D": ResidualUNet.load("unet/runs/20260621_183607_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
-    "Self Supervised": ResidualUNet.load("unet/runs/20260622_132820_self_sup_ncNone_lcw0.01_l1w0.001/residual_unet_epoch20.pt")
+    "Self Supervised": ResidualUNet.load("unet/runs/20260625_171745_self_sup_lr0.0008_lc0.55_tv0_bc2_sparse_error_border_std0.5/residual_unet_epoch20.pt"),
+    "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
+    # "Self Supervised Wrong": ResidualUNet.load("unet/runs_old/runs4/20260622_132820_wrong_self_sup_ncNone_lcw0.01_l1w0.001/residual_unet_epoch20.pt"),
 }
 
 metrics = [
@@ -210,7 +219,7 @@ if __name__ == "__main__":
                 }
                 all_results.append(row)
         
-        print(calibration_constants)
+        # print(calibration_constants)
 
     print("Evaluating Gaussian")
     for sample_name in samples:
