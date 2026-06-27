@@ -1,14 +1,9 @@
 from examples.sum.sum_fn import load_cached
+from unet.dataset_enhancement import save_h5
 from pathlib import Path
 import numpy as np
 import stemdiff
 import pandas as pd
-
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname("."), './unet/')))
-from dataset_enhancement import save_h5
 
 def split_df(df, use_max_rows=8_000):
     # 1. Shuffle the entire dataframe
@@ -41,15 +36,12 @@ def load_arrays(SDATA, df):
 
     return np.stack(arrs)
 
-# Commented out to use all as a final test set
 paths = [
     "DATA.STEMDIFF/1_AU/EX1.AU/DATA",
     "DATA.STEMDIFF/2_TBF3/VZ2.TBF3.R2",
     "DATA.STEMDIFF/3_FEO_PURE/FeO-Pure_Cimc",
     "DATA.STEMDIFF/4_MARUSKA_LAF3/D_MARUSKA_C214",
     "DATA.STEMDIFF/X1_GDF3/VZ2.GDF3.R2",
-    # "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2",
-    # "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"
 ]
 
 names = [
@@ -58,8 +50,6 @@ names = [
     "feo",
     "laf3",
     "gdf3",
-    # "tio2-a",
-    # "tio2-r"
 ]
 
 paths = list(map(Path, paths))
@@ -110,7 +100,16 @@ save_h5(val, output_dir / "val.h5")
 save_h5(test, output_dir / "test.h5")
 
 
-# Save whole tio2 as test sets 
+# Save whole tio2 and feo_shell as test sets 
+_, _, df_feo_shell = load_cached(
+    Path("DATA.STEMDIFF/FeO-Shell_Cimc"), 
+    "feo_shell"
+)
+stemdiff.dbase.save_database(
+    df_feo_shell, 
+    output_dir / "dbase" / f"db_test_feo_shell"
+)
+
 _, _, df_tio2a = load_cached(
     Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2"), 
     "tio2-a"
@@ -143,10 +142,12 @@ dbase_dir = output_dir / "dbase"
 output_dir.mkdir(exist_ok=True)
 dbase_dir.mkdir(exist_ok=True)
 paths.extend([
+    Path("DATA.STEMDIFF/FeO-Shell_Cimc"),
     Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2"),
     Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"),
 ])
 names.extend([
+    "feo_shell",
     "tio2-a",
     "tio2-r"
 ])

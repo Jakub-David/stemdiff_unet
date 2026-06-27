@@ -19,7 +19,7 @@ if __name__ == "__main__":
         # Includes penalty negative  values
         "l1_regularization": ...,
         # Total variation reg
-        "total_variation": ...,
+        "total_variation": 0,
         # Local consistency reg
         "local_consistency_reg": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         # Final learning rate (cosine decay)
         "min_lr": ..., 
         # Number of training epochs
-        "num_epochs": 20,
+        "num_epochs": 100,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -45,10 +45,10 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": 2, 
+            "base_channels": 1, 
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
-            "reduced_channels": False, 
+            "reduced_channels": True, 
             # Normalize input (and denormalize output)
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
@@ -61,14 +61,12 @@ if __name__ == "__main__":
         },
     }
 
-    for lc in [0.55, 0.6]:
-        for tv in [0]:
-            l1 = 1 - lc - tv
-            for lr in [8e-4, 7e-4]:
-                config["l1_regularization"] = l1
-                config["local_consistency_reg"] = lc
-                config["total_variation"] = tv
-                config["lr"] = lr
-                config["min_lr"] = lr / 5
-                exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_tv{tv}_bc2_sparse_error_border_std0.5")
+    for lc in [0.6]:
+        l1 = 1 - lc
+        for lr in [6e-4]:
+            config["l1_regularization"] = l1
+            config["local_consistency_reg"] = lc
+            config["lr"] = lr
+            config["min_lr"] = 1e-6
+            exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_bc1_reduced_100epochs")
 

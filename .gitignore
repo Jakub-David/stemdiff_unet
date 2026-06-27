@@ -37,4 +37,5 @@ old_nb/
 
 # Results
 evaluation_results/
+evaluation_results_val/
 unet/*results*.ipynb

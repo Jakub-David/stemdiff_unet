@@ -36,7 +36,7 @@ class STEMDataset(Dataset):
 
         if self.target_h5 is None:
             for in_k in in_keys:
-                in_len = f_in[in_k].shape[0]
+                in_len, h, w = f_in[in_k].shape
 
                 for i in range(in_len):
                     self.index_map.append((in_k, i))
@@ -45,7 +45,7 @@ class STEMDataset(Dataset):
             tar_keys = sorted(list(f_tar.keys()))
 
             for in_k, tar_k in zip(in_keys, tar_keys):
-                in_len = f_in[in_k].shape[0]
+                in_len, h, w = f_in[in_k].shape
                 tar_len = f_tar[tar_k].shape[0]
 
                 if in_len != tar_len:
@@ -58,13 +58,25 @@ class STEMDataset(Dataset):
             self.tar_fh = None
         self.in_fh = None
 
+        # Define border mask for noise estimation
+        cx, cy = h // 2, w // 2
+        r = round(h / 2.5)  # Safe radius to avoid the central peak
+
+        bg_mask = np.ones((1, h, w), dtype=bool)
+        bg_mask[0, cx-r:cx+r, cy-r:cy+r] = False
+        # Zero out the top 2 and bottom 2 rows
+        bg_mask[..., :2, :] = False
+        bg_mask[..., -2:, :] = False
+
+        # Zero out the left 2 and right 2 columns
+        bg_mask[..., :, :2] = False
+        bg_mask[..., :, -2:] = False
+
+        self.bg_mask = bg_mask
+        self.std_devs = {}
+
         if not include_profiles:
             return
-        
-        with open(dataset_dir / "dataset_params.json", "r") as f:
-            dataset_params = json.load(f)
-            self.center_sizes = dataset_params["center_sizes"]
-            cal_consts = dataset_params["calibration_constants"]
 
         self.profiles = {}
         self.centers = {}
@@ -113,28 +125,32 @@ class STEMDataset(Dataset):
             x = x[None, ...]
         x = torch.from_numpy(x.astype(np.float32))
 
-        if self.target_h5 is None:
-            return x, (
-                        self.profiles[in_key], 
-                        self.center_sizes[in_key],
-                        self.centers[in_key][img_idx]
-                    )
-        else:
+        # Estimate noise
+        std = self.std_devs.get(idx)
+        if std is None:
+            std = x[self.bg_mask].std().reshape((1, 1, 1))
+            self.std_devs[idx] = std
+
+        result = {
+            "original_image": x,
+            "noise_std": std
+        }
+
+        if self.target_h5 is not None:
             if x.shape != y.shape:
                 y = rescale(y, dsize=x.shape[1:])
             if y.ndim == 2:
                 y = y[None, ...]
             y = torch.from_numpy(y.astype(np.float32))
 
-            if self.include_profiles:
-                return x, (
-                            y, 
-                            self.profiles[in_key], 
-                            self.center_sizes[in_key],
-                            self.centers[in_key][img_idx]
-                        )
-            else:
-                return x, y
+            result["target_2d"] = y
+
+        if self.include_profiles:
+            result["target_profile"] = self.profiles[in_key]
+            result["center_size"] = 6
+            result["center"] = self.centers[in_key][img_idx]
+            
+        return result
     
 
 class SameKeyBatchSampler(Sampler):

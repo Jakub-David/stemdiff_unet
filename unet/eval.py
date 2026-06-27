@@ -64,26 +64,18 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
     if b == 0:
         b = 1e-20
 
-    for x, t in loader:
-        x = x.to(device, non_blocking=True)
-        if isinstance(t, torch.Tensor):
-            y = t.to(device, non_blocking=True)
-        else:
-            t = [z.to(device, non_blocking=True) for z in t]
-            if isinstance(t[0], torch.Tensor):
-                y = t[0]
-            else:
-                y = None
+    for data_dict in loader:
+        data_dict = {n: t.to(device, non_blocking=True) for n, t in data_dict.items()}
 
-        clean_pred = model(x)
+        clean_pred = model(data_dict["original_image"])
 
         if isinstance(criterion, CombinedLoss):
             if model.logspace:
                 loss, loss_2d, loss_1d, clean1d, target1d = \
-                    criterion(x, clean_pred.log1p(), t, a, b, return_parts=True)
+                    criterion(clean_pred.log1p(), data_dict, a, b, return_parts=True)
             else:
                 loss, loss_2d, loss_1d, clean1d, target1d = \
-                    criterion(x, clean_pred, t, a, b, return_parts=True)
+                    criterion(clean_pred, data_dict, a, b, return_parts=True)
             total_loss += loss
             if isinstance(loss_1d, torch.Tensor):
                 total_loss_1d += loss_1d
@@ -93,37 +85,37 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
             total_rkl += rkl(clean1d, target1d)
         elif criterion is not None:
             if model.logspace:
-                loss = criterion(clean_pred.log1p(), y.log1p())
+                loss = criterion(clean_pred.log1p(), data_dict["target_2d"].log1p())
             else:
-                loss = criterion(clean_pred, y)
+                loss = criterion(clean_pred, data_dict["target_2d"])
             total_loss += loss
 
 
         # Compute PSNR and entropy per batch
-        if y is not None:
-            batch_psnr = psnr(clean_pred, y)
+        if "target_2d" in data_dict:
+            batch_psnr = psnr(clean_pred, data_dict["target_2d"])
             total_psnr += batch_psnr.sum()
 
-        batch_entropy, batch_entropy_delta = calculate_batch_entropy(x, clean_pred)
+        batch_entropy, batch_entropy_delta = calculate_batch_entropy(data_dict["original_image"], clean_pred)
         total_entropy += batch_entropy.sum()
         total_entropy_delta += batch_entropy_delta.sum()
 
         # Save some examples if requested
         if return_every > 0 and total_batches % return_every == 0:
             examples.append((
-                x[:4].to('cpu', non_blocking=True),
+                data_dict["original_image"][:4].to('cpu', non_blocking=True),
                 clean_pred[:4].to('cpu', non_blocking=True),
-                y[:4].to('cpu', non_blocking=True),
+                data_dict["target_2d"][:4].to('cpu', non_blocking=True),
                 clean1d.to('cpu', non_blocking=True),
                 target1d.to('cpu', non_blocking=True)
             ))
 
-        total_images += x.shape[0]
+        total_images += data_dict["original_image"].shape[0]
         total_batches += 1
 
     results = {}
-    img_pixels = x.shape[-2] * x.shape[-1]
-    if y is not None:
+    img_pixels = data_dict["original_image"].shape[-2] * data_dict["original_image"].shape[-1]
+    if "target_2d" in data_dict:
         results["avg_psnr"] = total_psnr.item() / total_images 
     if isinstance(criterion, CombinedLoss):
         if criterion.loss_1d is not None:

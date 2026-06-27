@@ -10,14 +10,16 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 import pickle
+import sklearn.metrics
 from grid_search import (
     reverse_kl_divergence, 
     symmetric_cross_entropy, 
-    symmetric_mean_absolute_percentage_error,
-
+    symmetric_mean_absolute_percentage_error
 )
 
-def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: dict, deconv: int, visualize=False):
+def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: dict, deconv: int,
+                    results_dir: Path, samples: dict, cif_paths: dict, calibration_constants: dict,
+                    visualize=False, split_name="test"):
     if bkg == 3:
         run_name = "gaussian"
     else:
@@ -30,8 +32,8 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         Path(samples[sample_name]), 
         sample_name,
         "unet/dataset/dbase",
-        # TODO: change back to test
-        f"db_val_{sample_name}"
+        f"db_{split_name}_{sample_name}",
+        calculate_db=False
     )
 
     df = filter_datafiles(df_all, 100)
@@ -135,58 +137,60 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
 
     return scores
 
-samples = {
-    "au": "DATA.STEMDIFF/1_AU/EX1.AU/DATA",
-    "tbf3": "DATA.STEMDIFF/2_TBF3/VZ2.TBF3.R2",
-    "feo": "DATA.STEMDIFF/3_FEO_PURE/FeO-Pure_Cimc",
-    "feo_shell": "DATA.STEMDIFF/FeO-Shell_Cimc",
-    "laf3": "DATA.STEMDIFF/4_MARUSKA_LAF3/D_MARUSKA_C214",
-    "gdf3": "DATA.STEMDIFF/X1_GDF3/VZ2.GDF3.R2",
-    "tio2-a": "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2",
-    "tio2-r": "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"
-}
-
-cif_paths = {
-    "au": "DATA.STEMDIFF/cif/au_9008463.cif",
-    "tbf3": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
-    "feo": "DATA.STEMDIFF/cif/Fe3O4.cif",
-    "feo_shell": "DATA.STEMDIFF/cif/Fe3O4.cif",
-    "laf3": "DATA.STEMDIFF/cif/laf3_9008114.cif",
-    "gdf3": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
-    "tio2-a": "DATA.STEMDIFF/cif/tio2_anatase_9015929.cif",
-    "tio2-r": "DATA.STEMDIFF/cif/tio2_rutile_9015662.cif",
-}
-
-calibration_constants = {
-    'au': 0.03377241772151899, 
-    'tbf3': 0.031983907407407405, 
-    'feo': 0.031019912500000003, 
-    'laf3': 0.03087730158730159, 
-    'gdf3': 0.03332153703703704, 
-    'tio2-a': 0.03191196428571429, 
-    'tio2-r': 0.03171350819672131, 
-    'feo_shell': 0.031111495408000765 * 0.99
-}
-
-models = {
-    "Self Supervised": ResidualUNet.load("unet/runs/20260625_171745_self_sup_lr0.0008_lc0.55_tv0_bc2_sparse_error_border_std0.5/residual_unet_epoch20.pt"),
-    "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
-    # "Self Supervised Wrong": ResidualUNet.load("unet/runs_old/runs4/20260622_132820_wrong_self_sup_ncNone_lcw0.01_l1w0.001/residual_unet_epoch20.pt"),
-}
-
-metrics = [
-    reverse_kl_divergence,
-    symmetric_cross_entropy,
-    symmetric_mean_absolute_percentage_error,
-]
-
-db_dir = Path("unet/dataset/dbase/")
-results_dir = Path("evaluation_results")
-results_dir.mkdir(exist_ok=True)
-models_dir = results_dir / "models"
-models_dir.mkdir(exist_ok=True)
-
 if __name__ == "__main__":
+    samples = {
+        "au": "DATA.STEMDIFF/1_AU/EX1.AU/DATA",
+        "tbf3": "DATA.STEMDIFF/2_TBF3/VZ2.TBF3.R2",
+        "feo": "DATA.STEMDIFF/3_FEO_PURE/FeO-Pure_Cimc",
+        "feo_shell": "DATA.STEMDIFF/FeO-Shell_Cimc",
+        "laf3": "DATA.STEMDIFF/4_MARUSKA_LAF3/D_MARUSKA_C214",
+        "gdf3": "DATA.STEMDIFF/X1_GDF3/VZ2.GDF3.R2",
+        "tio2-a": "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2",
+        "tio2-r": "DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"
+    }
+
+    cif_paths = {
+        "au": "DATA.STEMDIFF/cif/au_9008463.cif",
+        "tbf3": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
+        "feo": "DATA.STEMDIFF/cif/Fe3O4.cif",
+        "feo_shell": "DATA.STEMDIFF/cif/Fe3O4.cif",
+        "laf3": "DATA.STEMDIFF/cif/laf3_9008114.cif",
+        "gdf3": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
+        "tio2-a": "DATA.STEMDIFF/cif/tio2_anatase_9015929.cif",
+        "tio2-r": "DATA.STEMDIFF/cif/tio2_rutile_9015662.cif",
+    }
+
+    # calibration_constants = None
+    calibration_constants = {
+        'au': 0.03377241772151899, 
+        'tbf3': 0.031983907407407405, 
+        'feo': 0.031019912500000003, 
+        'laf3': 0.03087730158730159, 
+        'gdf3': 0.03332153703703704, 
+        'tio2-a': 0.03191196428571429, 
+        'tio2-r': 0.03171350819672131, 
+        'feo_shell': 0.031111495408000765 * 0.99
+    }
+
+    models = {
+        # "Self Supervised": ResidualUNet.load("unet/runs/20260625_171745_self_sup_lr0.0008_lc0.55_tv0_bc2_sparse_error_border_std0.5/residual_unet_epoch20.pt"),
+        # "Self Supervised - All Data": ResidualUNet.load("unet/runs/20260626_122450_self_sup_all_lr4e-5/residual_unet_epoch10.pt"),
+        "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
+    }
+    
+    metrics = [
+        reverse_kl_divergence,
+        symmetric_cross_entropy,
+        symmetric_mean_absolute_percentage_error,
+        sklearn.metrics.mean_absolute_error
+    ]
+
+    db_dir = Path("unet/dataset/dbase/")
+    results_dir = Path("evaluation_results")
+    results_dir.mkdir(exist_ok=True)
+    models_dir = results_dir / "models"
+    models_dir.mkdir(exist_ok=True)
+
     all_results = []
     for name, (m, p) in models.items():
         print("Evaluating model:", name)
@@ -207,6 +211,10 @@ if __name__ == "__main__":
                     4,
                     {"path": model_onnx_path},
                     deconv,
+                    results_dir,
+                    samples,
+                    cif_paths,
+                    calibration_constants,
                     visualize=False
                 )
 
@@ -236,6 +244,10 @@ if __name__ == "__main__":
                     "normalize": True
                 },
                 deconv,
+                results_dir,
+                samples,
+                cif_paths,
+                calibration_constants,
                 visualize=False
             )
 

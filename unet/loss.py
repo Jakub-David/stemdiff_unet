@@ -67,44 +67,21 @@ class CombinedLoss(torch.nn.Module):
             self.conv_l = torch.nn.Conv2d(1, 1, kernel_size=k_l_size, dilation=2, padding="same", bias=False, device=device)
             self.conv_l.weight.data = k_l_2d.view(1, 1, k_l_size, k_l_size)
 
-
-            h, w = 256, 256
-            cy, cx = h // 2, w // 2
-            r = round(h / 2.5)  # Safe radius to avoid the central peak
-
-            bg_mask = torch.ones((h, w), dtype=torch.bool, device=device)
-            bg_mask[cy-r:cy+r, cx-r:cx+r] = False
-            # Zero out the top 2 and bottom 2 rows (entire width)
-            bg_mask[..., :2, :] = False
-            bg_mask[..., -2:, :] = False
-
-            # Zero out the left 2 and right 2 columns (entire height)
-            bg_mask[..., :, :2] = False
-            bg_mask[..., :, -2:] = False
-
-            self.register_buffer("bg_mask", bg_mask.flatten())
-
-    def forward(self, orig: torch.Tensor, clean: torch.Tensor, y, a=1, b=1, return_parts=False) -> torch.Tensor:
-        if len(y) == 4:
-            p = y[1:]
-            y = y[0]
-        else:
-            p = y
-            y = None
-
-        if self.logspace and isinstance(y, torch.Tensor):
-            y = torch.log1p(y)
-
+    def forward(self, clean_prediction: torch.Tensor, data_dict: dict[str, torch.Tensor], a=1, b=1, return_parts=False) -> torch.Tensor:
         if self.loss_2d is not None and a > 0:
-            loss_2d = self.loss_2d(clean, y)
+            y = data_dict["target_2d"]
+            if self.logspace:
+                y = torch.log1p(y)
+            loss_2d = self.loss_2d(clean_prediction, y)
         else:
             loss_2d = 0
             
         if self.loss_1d is not None and b > 0:
+            p = (data_dict["target_profile"], data_dict["center_size"], data_dict["center"])
             if self.logspace:
-                x_exp = torch.expm1(clean)
+                x_exp = torch.expm1(clean_prediction)
             else:
-                x_exp = clean
+                x_exp = clean_prediction
 
             x1d, target1d = prepare_profiles(x_exp, p, self.individual_profiles, self.rad_dist, self.profile_scale)
             loss_1d = self.loss_1d(x1d, target1d)
@@ -115,19 +92,20 @@ class CombinedLoss(torch.nn.Module):
         if self.l1_reg_w > 0:
             # l1 norm
             l1_reg = torch.nn.functional.huber_loss(
-                clean,
-                torch.zeros_like(clean)
+                clean_prediction,
+                torch.zeros_like(clean_prediction)
             )
         else:
             l1_reg = 0
 
         if self.total_variation_w > 0:
             # use mean reduction to keep scale closer to other losses
-            tv = torchmetrics.functional.total_variation(clean, reduction="mean")
+            tv = torchmetrics.functional.total_variation(clean_prediction, reduction="mean")
         else:
             tv = 0
 
         if self.local_cons_reg_w > 0:
+            orig = data_dict["original_image"]
             # 1. Calculate error
             if self.logspace:
                 orig = torch.log1p(orig)
@@ -135,10 +113,10 @@ class CombinedLoss(torch.nn.Module):
             bw = self.border_width
 
             # Calculate means
-            means_clean_s = self.conv_s(clean)
+            means_clean_s = self.conv_s(clean_prediction)
             means_orig_s = self.conv_s(orig)
 
-            means_clean_l = self.conv_l(clean)
+            means_clean_l = self.conv_l(clean_prediction)
             means_orig_l = self.conv_l(orig)
 
             # Compute absolute differences between features and remove borders
@@ -148,20 +126,8 @@ class CombinedLoss(torch.nn.Module):
             # Absolute error
             abs_error = torch.abs(diff_clean - diff_orig)
 
-            # 2. Estimate background noise
-            # Extract the background pixels of the original image to find this sample's specific noise scale
-            orig_flat = orig.flatten(start_dim=1)
-            bg_pixels = orig_flat[..., self.bg_mask]
-
-            # Calculate the Standard Deviation of the background for each image in the batch
-            # This acts as a per-sample, self-tuning noise metric
-            noise_std = bg_pixels.std(dim=-1, keepdim=True).unsqueeze(-1)  # Shape: [B, C, 1, 1]
-
-            # Just using noise std is too aggressive
-            noise_std = noise_std * 0.5
-
             # 3. Zero out any penalties within the dynamic noise threshold
-            sparse_error = torch.relu(abs_error - noise_std)
+            sparse_error = torch.relu(abs_error - data_dict["noise_std"] * 0.3)
 
             # 4. Compute loss
             lc_reg = torch.nn.functional.huber_loss(

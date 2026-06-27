@@ -35,12 +35,12 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
     train_dataset = STEMDataset(
         dataset_dir,
         "train.h5",
-        "train_target.h5" if include_targets and dataset_dir != "dataset_all" else None,
+        "train_target.h5" if include_targets else None,
         scale_factor,
         include_profiles
     )
     val_dataset = STEMDataset(
-        dataset_dir if dataset_dir != "dataset_all" else "dataset_filtered",
+        dataset_dir if dataset_dir != "dataset_all" else "dataset",
         "val.h5",
         "val_target.h5",
         scale_factor,
@@ -135,8 +135,8 @@ def train(config: dict, experiment_name=None):
         dataset_dir, 
         batch_size, 
         scale_factor,
-        include_targets=True,
-        include_profiles=True,
+        include_targets=loss_2d is not None,
+        include_profiles=loss_1d is not None,
         same_key_batch=same_sample_batch
     )
 
@@ -215,21 +215,17 @@ def train(config: dict, experiment_name=None):
         model.train()
         epoch_loss = 0.0
 
-        for x, y in tqdm(train_loader):
-            x = x.to(device, non_blocking=True)
-            if isinstance(y, torch.Tensor):
-                y = y.to(device, non_blocking=True)
-            else:
-                y = [z.to(device, non_blocking=True) for z in y]
+        for data_dict in tqdm(train_loader):
+            data_dict = {n: t.to(device, non_blocking=True) for n, t in data_dict.items()}
 
             optimizer.zero_grad()
 
-            clean_pred = model(x)
+            clean_pred = model(data_dict["original_image"])
 
             if interpolate_weights:
                 a = float(np.interp(epoch, [0, num_epochs], [1, loss_2d_final_w]))
                 b = 1 - a
-            loss = criterion(x, clean_pred, y, a, b)
+            loss = criterion(clean_pred, data_dict, a, b)
 
             loss.backward()
             optimizer.step()
@@ -299,7 +295,7 @@ def train(config: dict, experiment_name=None):
         del examples
 
         # Write progress to console             
-        tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {eval_metrics["avg_loss"]:.6f}, Avg val psnr: {eval_metrics["avg_psnr"]:.6f}")
+        tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {eval_metrics["avg_loss"]:.6f}, Avg val reverse kl div: {eval_metrics["reverse_kl_div"]:.6f}")
 
         # Log loss weights
         writer.add_scalar("Hyperparameters/WeightA", a, epoch)
