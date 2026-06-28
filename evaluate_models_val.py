@@ -4,7 +4,6 @@ from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
 import h5py
-import sklearn.metrics
 from evaluate_models import evaluate_sample
 from grid_search import (
     reverse_kl_divergence, 
@@ -28,7 +27,6 @@ cif_paths = {
     "gdf3": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
 }
 
-# calibration_constants = None
 calibration_constants = {
     'au': 0.03377241772151899, 
     'tbf3': 0.031983907407407405, 
@@ -41,16 +39,15 @@ models = {
     "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
 }
 
-model_dir = "20260627_141316_self_sup_lr0.0006_lc0.6_bc1_reduced_100epochs"
+model_dir = "20260628_013819_self_sup_all_lr6e-4_min_lr2e-7_25epochs"
 
-for i in range(1, 100):
+for i in range(5, 26):
     models[f"Self Supervised - Epoch {i}"] = ResidualUNet.load(f"unet/runs/{model_dir}/residual_unet_epoch{i}.pt")
 
 metrics = [
     reverse_kl_divergence,
     symmetric_cross_entropy,
-    symmetric_mean_absolute_percentage_error,
-    sklearn.metrics.mean_absolute_error
+    symmetric_mean_absolute_percentage_error
 ]
 
 db_dir = Path("unet/dataset/dbase/")

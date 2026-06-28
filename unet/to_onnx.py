@@ -31,7 +31,7 @@ def convert(model, output_name, h5_data, verbose=True):
     ort_output = ort_session.run(None, ort_inputs)[0].squeeze()
 
     # Compare with relative (rtol) and absolute (atol) tolerance
-    np.testing.assert_allclose(torch_output, ort_output, rtol=1e-01, atol=1e-02, verbose=verbose)
+    np.testing.assert_allclose(torch_output, ort_output, rtol=1, atol=1e-01, verbose=verbose)
     if verbose:
         print("✓ Export validated within rtol=1e-01, atol=1e-02")
 

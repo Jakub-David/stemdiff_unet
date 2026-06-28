@@ -10,7 +10,6 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 import pickle
-import sklearn.metrics
 from grid_search import (
     reverse_kl_divergence, 
     symmetric_cross_entropy, 
@@ -44,9 +43,6 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         two_theta_range=(5, 100),
         peak_profile_sigma=0.03,
     )
-    # xrd_diff_path = Path(f"unet/dataset/{sample_name}")
-    # if xrd_diff_path.exists():
-    #     XRD.diffractogram = pd.read_csv(xrd_diff_path, sep=r'\s+')
 
     # create psf
     if deconv == 1:
@@ -127,9 +123,6 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
     plt.legend()
     plt.savefig(current_results_dir / f"{sample_name}_deconv{deconv}_interpolated.svg")
 
-    # if deconv == 1:
-    #     calibration_constants[sample_name] = ELD.calibration_constant
-
     scores = {}
     for metric in metrics:
         score = metric(xrd_diff.I, eld_I)
@@ -160,7 +153,6 @@ if __name__ == "__main__":
         "tio2-r": "DATA.STEMDIFF/cif/tio2_rutile_9015662.cif",
     }
 
-    # calibration_constants = None
     calibration_constants = {
         'au': 0.03377241772151899, 
         'tbf3': 0.031983907407407405, 
@@ -173,16 +165,15 @@ if __name__ == "__main__":
     }
 
     models = {
-        # "Self Supervised": ResidualUNet.load("unet/runs/20260625_171745_self_sup_lr0.0008_lc0.55_tv0_bc2_sparse_error_border_std0.5/residual_unet_epoch20.pt"),
-        # "Self Supervised - All Data": ResidualUNet.load("unet/runs/20260626_122450_self_sup_all_lr4e-5/residual_unet_epoch10.pt"),
+        "Self Supervised": ResidualUNet.load("unet/runs/20260627_182011_self_sup_lr0.0006_lc0.6_bc1_reduced_60epochs/residual_unet_epoch36.pt"),
+        "Self Supervised - All Data": ResidualUNet.load("unet/runs/20260628_004355_self_sup_all_lr6e-4_min_lr3e-7_25epochs/residual_unet_epoch13.pt"),
         "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
     }
     
     metrics = [
         reverse_kl_divergence,
         symmetric_cross_entropy,
-        symmetric_mean_absolute_percentage_error,
-        sklearn.metrics.mean_absolute_error
+        symmetric_mean_absolute_percentage_error
     ]
 
     db_dir = Path("unet/dataset/dbase/")
@@ -226,8 +217,6 @@ if __name__ == "__main__":
                     **scores
                 }
                 all_results.append(row)
-        
-        # print(calibration_constants)
 
     print("Evaluating Gaussian")
     for sample_name in samples:
