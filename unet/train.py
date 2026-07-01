@@ -177,7 +177,8 @@ def train(config: dict, experiment_name=None):
         loss_2d=loss_2d,
         l1_reg=config["l1_regularization"],
         total_variation=config["total_variation"],
-        local_cons_reg=config["local_consistency_reg"]
+        local_cons_reg=config["local_consistency_reg"],
+        local_cons_noise_c=config["local_consistency_noise_constant"]
     )
     eval_criterion = CombinedLoss(
         device, 
@@ -339,6 +340,9 @@ if __name__ == "__main__":
         "total_variation": 0,
         # Local consistency reg
         "local_consistency_reg": 5e-3,
+        # This constant controls noise level, higher value means more noise reduction
+        # It is a multiplier for noise level estimated for each image
+        "local_consistency_noise_constant": 0.3,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets

@@ -42,7 +42,8 @@ class SymmetricMAPELoss(torch.nn.Module):
 
 class CombinedLoss(torch.nn.Module):
     def __init__(self, device, logspace=False, profile_scale=1, individual_profiles=False, 
-                 loss_1d=None, loss_2d=None, l1_reg=0, total_variation=0, local_cons_reg=0):
+                 loss_1d=None, loss_2d=None, l1_reg=0, total_variation=0, local_cons_reg=0,
+                 local_cons_noise_c = 0.5):
         super().__init__()
         self.logspace = logspace
         self.profile_scale = profile_scale
@@ -53,6 +54,7 @@ class CombinedLoss(torch.nn.Module):
         self.l1_reg_w = l1_reg
         self.total_variation_w = total_variation
         self.local_cons_reg_w = local_cons_reg
+        self.local_cons_noise_c = local_cons_noise_c
         if local_cons_reg > 0:
 
             k_s_size = 3
@@ -127,7 +129,7 @@ class CombinedLoss(torch.nn.Module):
             abs_error = torch.abs(diff_clean - diff_orig)
 
             # 3. Zero out any penalties within the dynamic noise threshold
-            sparse_error = torch.relu(abs_error - data_dict["noise_std"] * 0.3)
+            sparse_error = torch.relu(abs_error - data_dict["noise_std"] * self.local_cons_noise_c)
 
             # 4. Compute loss
             lc_reg = torch.nn.functional.huber_loss(

@@ -14,11 +14,14 @@ if __name__ == "__main__":
         # Apply l1 regularization on the network output
         # This is the weight for the regularization, 0 means off
         # Includes penalty negative  values
-        "l1_regularization": 0.4,
+        "l1_regularization": ...,
         # Total variation reg
         "total_variation": 0,
         # Local consistency reg
-        "local_consistency_reg": 0.6,
+        "local_consistency_reg": ...,
+        # This constant controls noise level, higher value means more noise reduction
+        # It is a multiplier for noise level estimated for each image
+        "local_consistency_noise_constant": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets
@@ -27,11 +30,11 @@ if __name__ == "__main__":
         # For "2D" dataset only used in logging
         "profile_scale": 1,
         # Initial learning rate
-        "lr": 6e-4, 
+        "lr": ..., 
         # Final learning rate (cosine decay)
         "min_lr": 1e-6, 
         # Number of training epochs
-        "num_epochs": 20,
+        "num_epochs": 10,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -42,10 +45,10 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": 1, 
+            "base_channels": 4, 
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
-            "reduced_channels": True, 
+            "reduced_channels": False, 
             # Normalize input (and denormalize output)
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
@@ -58,5 +61,12 @@ if __name__ == "__main__":
         },
     }
 
-    exp_id = train(config, f"self_sup_all_lr6e-4_bc1_lc0.6_nsigma0.3_20epochs")
+    for lc in [0.6, 0.65]:
+        for c in [1, 0.5]:
+            for lr in [1e-3, 5e-4, 1e-4]:
+                config["lr"] = lr
+                config["local_consistency_noise_constant"] = c
+                config["local_consistency_reg"] = lc
+                config["l1_regularization"] = 1 - lc
+                exp_id = train(config, f"self_sup_all_lr{config['lr']}_min_lr{config['min_lr']}_lc{lc}_c{c}_{config['num_epochs']}epochs_bc4_reducedFalse")
     

@@ -22,6 +22,9 @@ if __name__ == "__main__":
         "total_variation": 0,
         # Local consistency reg
         "local_consistency_reg": ...,
+        # This constant controls noise level, higher value means more noise reduction
+        # It is a multiplier for noise level estimated for each image
+        "local_consistency_noise_constant": 0.3,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets
@@ -34,7 +37,7 @@ if __name__ == "__main__":
         # Final learning rate (cosine decay)
         "min_lr": ..., 
         # Number of training epochs
-        "num_epochs": 100,
+        "num_epochs": 60,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -68,5 +71,5 @@ if __name__ == "__main__":
             config["local_consistency_reg"] = lc
             config["lr"] = lr
             config["min_lr"] = 1e-6
-            exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_bc1_reduced_100epochs")
+            exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_bc1_reduced_{config['num_epochs']}epochs")
 

@@ -36,6 +36,5 @@ examples/STEMDIFF/
 old_nb/
 
 # Results
-evaluation_results/
-evaluation_results_val/
+evaluation_results*/
 unet/*results*.ipynb
