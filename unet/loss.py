@@ -218,22 +218,6 @@ def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_sca
 
     return intensity, target_profile
 
-def resize_target(q, I, calibration_constant) -> torch.Tensor:
-    # 0. Define the number of bins
-    N = torch.round(q[-1] * calibration_constant).int()
-
-    # 1. Round x and convert to long/int so it can be used as indices
-    # We also clip the values to ensure they stay within [0, N-1]
-    indices = torch.round(q * calibration_constant).long().clamp(0, N - 1)
-
-    # 2. Initialize the output tensor of length N
-    out = torch.zeros((N,), dtype=I.dtype, device=I.device)
-
-    # 3. Use scatter_reduce to find the maximum for each index
-    out.scatter_reduce_(dim=0, index=indices, src=I, reduce="amax", include_self=False)
-
-    return out
-
 def center_images(images: torch.Tensor, centers=None) -> torch.Tensor:
     """
     Center 2D images in a torch tensor of shape (b, 1, x, x).

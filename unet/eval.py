@@ -23,12 +23,6 @@ def entropy(img_tensor):
     entropy = torch.sum(torch.special.entr(probs)) / torch.log(torch.tensor(2.0))
     return entropy
 
-def calculate_batch_entropy(x, y):
-    x_entropy = torch.stack([entropy(img) for img in x])
-    y_entropy = torch.stack([entropy(img) for img in y])
-    entropy_delta = y_entropy - x_entropy
-    return y_entropy, entropy_delta
-
 @torch.no_grad()
 def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
     """
@@ -52,7 +46,6 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
     total_loss_1d = 0.0
     total_loss_2d = 0.0
     total_entropy = 0.0
-    total_entropy_delta = 0.0
     total_rkl = 0.0
     total_images = 0
     total_batches = 0
@@ -96,16 +89,15 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
             batch_psnr = psnr(clean_pred, data_dict["target_2d"])
             total_psnr += batch_psnr.sum()
 
-        batch_entropy, batch_entropy_delta = calculate_batch_entropy(data_dict["original_image"], clean_pred)
+        batch_entropy = torch.stack([entropy(img) for img in clean_pred])
         total_entropy += batch_entropy.sum()
-        total_entropy_delta += batch_entropy_delta.sum()
 
         # Save some examples if requested
         if return_every > 0 and total_batches % return_every == 0:
             examples.append((
                 data_dict["original_image"][:4].to('cpu', non_blocking=True),
                 clean_pred[:4].to('cpu', non_blocking=True),
-                data_dict["target_2d"][:4].to('cpu', non_blocking=True),
+                data_dict["target_2d"][:4].to('cpu', non_blocking=True) if "target_2d" in data_dict else None,
                 clean1d.to('cpu', non_blocking=True),
                 target1d.to('cpu', non_blocking=True)
             ))
@@ -133,6 +125,5 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
     results["reverse_kl_div"] = total_rkl.item() / total_batches # assume 1 profile per batch
 
     results["output_entropy"] = total_entropy.item() / total_images
-    results["entropy_delta"] = total_entropy_delta.item() / total_images
 
     return results, examples

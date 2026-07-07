@@ -1,12 +1,45 @@
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import Sampler, Dataset
 import random
 from pathlib import Path
 import h5py
 import cv2 as cv
-import json
 import stemdiff as sd
+
+CALIBRATION_CONSTANTS = {
+    'au': 0.03377241772151899, 
+    'tbf3': 0.031983907407407405, 
+    'feo': 0.031019912500000003, 
+    'laf3': 0.03087730158730159, 
+    'gdf3': 0.03332153703703704, 
+    'tio2-a': 0.03191196428571429, 
+    'tio2-r': 0.03171350819672131, 
+    'feo_shell': 0.031111495408000765 * 0.99
+}
+
+
+def resize_profile(q, I, calibration_constant, profile_scale) -> torch.Tensor:
+    # Calibration constant is ELD -> XRD for images resized 4x
+    calibration_constant = 1 / calibration_constant # XRD -> ELD
+    calibration_constant = calibration_constant / 4 # for profile_scale 1
+    calibration_constant = calibration_constant * profile_scale
+
+    # 0. Define the number of bins
+    N = torch.round(q[-1] * calibration_constant).int()
+
+    # 1. Round x and convert to long/int so it can be used as indices
+    # We also clip the values to ensure they stay within [0, N-1]
+    indices = torch.round(q * calibration_constant).long().clamp(0, N - 1)
+
+    # 2. Initialize the output tensor of length N
+    out = torch.zeros((N,), dtype=I.dtype, device=I.device)
+
+    # 3. Use scatter_reduce to find the maximum for each index
+    out.scatter_reduce_(dim=0, index=indices, src=I, reduce="amax", include_self=False)
+
+    return out
 
 def rescale(img, scale_factor=0, dsize=None):
     resized = cv.resize(
@@ -23,7 +56,8 @@ def rescale(img, scale_factor=0, dsize=None):
 
 class STEMDataset(Dataset):
     def __init__(self, dataset_dir, input_fname, target_fname, scale_factor=1,
-                 include_profiles=False, profile_scale=1):
+                 include_profiles=False, profile_scale=1, 
+                 profiles_dir=Path("../DATA.STEMDIFF/profiles")):
         dataset_dir = Path(dataset_dir)
         self.input_h5 = dataset_dir / input_fname
         self.target_h5 = dataset_dir / target_fname if target_fname is not None else None
@@ -82,9 +116,11 @@ class STEMDataset(Dataset):
         self.centers = {}
         max_prof_len = 0
         for key in sorted(f_in.keys()):
-            profile_fname = key + (f"x{profile_scale}" if profile_scale != 1 else "")
-            p = np.loadtxt(dataset_dir / "target_profiles" / profile_fname)
-            self.profiles[key] = p.astype(np.float32)
+            df = pd.read_csv(profiles_dir / key, sep=r'\s+')
+            q = torch.from_numpy(df.q.to_numpy()).float()
+            I = torch.from_numpy(df.I.to_numpy()).float()
+            p = resize_profile(q, I, CALIBRATION_CONSTANTS[key], profile_scale)
+            self.profiles[key] = p
             max_prof_len = max(max_prof_len, len(p))
 
             db_path = dataset_dir / "dbase" / f"db_{self.input_h5.stem}_{key}"

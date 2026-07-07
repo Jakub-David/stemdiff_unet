@@ -42,7 +42,7 @@ def init_dataset(dataset_dir, batch_size, scale_factor, include_targets=True,
     val_dataset = STEMDataset(
         dataset_dir if dataset_dir != "dataset_all" else "dataset",
         "val.h5",
-        "val_target.h5",
+        "val_target.h5" if include_targets else None,
         scale_factor,
         True
     )
@@ -83,8 +83,9 @@ def log_images(writer, global_step, examples, log_static, epoch_str):
         if log_static:
             x_log = x[:4] 
             writer.add_images(f"StaticInputs/Input{i}", x_log, global_step)
-            y_log = y[:4]
-            writer.add_images(f"StaticTargets/Target{i}", y_log, global_step)
+            if y is not None:
+                y_log = y[:4]
+                writer.add_images(f"StaticTargets/Target{i}", y_log, global_step)
 
         writer.add_image(
             f"{epoch_str}Profiles/Profile{i}", 
@@ -186,7 +187,7 @@ def train(config: dict, experiment_name=None):
         profile_scale, 
         individual_profiles=False, 
         loss_1d=torch.nn.L1Loss(reduction="sum"), 
-        loss_2d=torch.nn.L1Loss(reduction="sum")
+        loss_2d=torch.nn.HuberLoss(reduction="sum") if loss_2d is not None else None
     )
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -296,7 +297,7 @@ def train(config: dict, experiment_name=None):
         del examples
 
         # Write progress to console             
-        tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val loss: {eval_metrics["avg_loss"]:.6f}, Avg val reverse kl div: {eval_metrics["reverse_kl_div"]:.6f}")
+        tqdm.write(f"Epoch [{epoch+1}/{num_epochs}] - Avg train Loss: {avg_loss:.6f}, Avg val reverse kl div: {eval_metrics["reverse_kl_div"]:.6f}")
 
         # Log loss weights
         writer.add_scalar("Hyperparameters/WeightA", a, epoch)
