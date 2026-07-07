@@ -72,20 +72,18 @@ class CombinedLoss(torch.nn.Module):
     def forward(self, clean_prediction: torch.Tensor, data_dict: dict[str, torch.Tensor], a=1, b=1, return_parts=False) -> torch.Tensor:
         if self.loss_2d is not None and a > 0:
             y = data_dict["target_2d"]
+            x = clean_prediction
             if self.logspace:
                 y = torch.log1p(y)
-            loss_2d = self.loss_2d(clean_prediction, y)
+                x = torch.log1p(x)
+            loss_2d = self.loss_2d(x, y)
         else:
             loss_2d = 0
             
         if self.loss_1d is not None and b > 0:
             p = (data_dict["target_profile"], data_dict["center_size"], data_dict["center"])
-            if self.logspace:
-                x_exp = torch.expm1(clean_prediction)
-            else:
-                x_exp = clean_prediction
 
-            x1d, target1d = prepare_profiles(x_exp, p, self.individual_profiles, self.rad_dist, self.profile_scale)
+            x1d, target1d = prepare_profiles(clean_prediction, p, self.individual_profiles, self.rad_dist, self.profile_scale)
             loss_1d = self.loss_1d(x1d, target1d)
         else:
             x1d, target1d = None, None
@@ -94,7 +92,7 @@ class CombinedLoss(torch.nn.Module):
         if self.l1_reg_w > 0:
             # l1 norm
             l1_reg = torch.nn.functional.huber_loss(
-                clean_prediction,
+                torch.log1p(clean_prediction) if self.logspace else clean_prediction,
                 torch.zeros_like(clean_prediction)
             )
         else:
@@ -109,8 +107,6 @@ class CombinedLoss(torch.nn.Module):
         if self.local_cons_reg_w > 0:
             orig = data_dict["original_image"]
             # 1. Calculate error
-            if self.logspace:
-                orig = torch.log1p(orig)
 
             bw = self.border_width
 
@@ -132,6 +128,8 @@ class CombinedLoss(torch.nn.Module):
             sparse_error = torch.relu(abs_error - data_dict["noise_std"] * self.local_cons_noise_c)
 
             # 4. Compute loss
+            if self.logspace:
+                sparse_error = torch.log1p(sparse_error)
             lc_reg = torch.nn.functional.huber_loss(
                 sparse_error, 
                 torch.zeros_like(sparse_error), 

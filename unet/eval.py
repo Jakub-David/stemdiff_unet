@@ -63,11 +63,7 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
         clean_pred = model(data_dict["original_image"])
 
         if isinstance(criterion, CombinedLoss):
-            if model.logspace:
-                loss, loss_2d, loss_1d, clean1d, target1d = \
-                    criterion(clean_pred.log1p(), data_dict, a, b, return_parts=True)
-            else:
-                loss, loss_2d, loss_1d, clean1d, target1d = \
+            loss, loss_2d, loss_1d, clean1d, target1d = \
                     criterion(clean_pred, data_dict, a, b, return_parts=True)
             total_loss += loss
             if isinstance(loss_1d, torch.Tensor):
@@ -77,10 +73,7 @@ def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
             
             total_rkl += rkl(clean1d, target1d)
         elif criterion is not None:
-            if model.logspace:
-                loss = criterion(clean_pred.log1p(), data_dict["target_2d"].log1p())
-            else:
-                loss = criterion(clean_pred, data_dict["target_2d"])
+            loss = criterion(clean_pred, data_dict["target_2d"])
             total_loss += loss
 
 

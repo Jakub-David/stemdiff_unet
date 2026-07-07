@@ -48,23 +48,17 @@ class DoubleConv(nn.Module):
 
 
 class ResidualUNet(nn.Module):
-    def __init__(self, in_channels=1, base_channels=8, dropout=0.1,
-                 logspace=False, normalize=True, predict_background=True,
+    def __init__(self, in_channels=1, base_channels=8, dropout=0.1, 
+                 normalize=True, predict_background=True,
                  reduced_channels=False, normalization_constant=None):
         super().__init__()
         self.in_channels = in_channels
         self.base_channels = base_channels
         self.dropout = dropout
-        self.logspace = logspace
         self.normalize = normalize
         self.predict_background = predict_background
         self.reduced_channels = reduced_channels
         self.normalization_constant = normalization_constant
-
-        if self.logspace and normalization_constant is not None:
-            self._nc = np.log1p(normalization_constant)
-        else:
-            self._nc = normalization_constant
 
         if reduced_channels:
             c1 = base_channels
@@ -106,13 +100,10 @@ class ResidualUNet(nn.Module):
         self.final = nn.Conv2d(c1 + in_channels, in_channels, kernel_size=1)
 
     def forward(self, x):
-        if self.logspace:
-            x = torch.log1p(x)
-
         input_img = x
             
         if self.normalize:
-            if self._nc is None:
+            if self.normalization_constant is None:
                 # Compute per-image mean/std (over C, H, W)
                 mean = x.mean(dim=(1, 2, 3), keepdim=True)
                 std = x.std(dim=(1, 2, 3), keepdim=True)
@@ -120,7 +111,7 @@ class ResidualUNet(nn.Module):
                 # Normalize
                 x = (x - mean) / (std + 1e-6)
             else:
-                x = x / self._nc
+                x = x / self.normalization_constant
 
         # Encoder
         d1 = self.down1(x)
@@ -152,10 +143,10 @@ class ResidualUNet(nn.Module):
 
         if self.normalize:
             # Undo normalization
-            if self._nc is None:
+            if self.normalization_constant is None:
                 output = output * std + mean
             else:
-                output = output * self._nc
+                output = output * self.normalization_constant
 
         if self.predict_background:
             # Residual output
@@ -164,9 +155,6 @@ class ResidualUNet(nn.Module):
         else:
             clean = torch.nn.functional.relu(output)
             clean = torch.clamp_max(clean, input_img)
-
-        if self.logspace and not self.training:
-            clean = torch.expm1(clean)
 
         return clean
     
@@ -229,7 +217,6 @@ class ResidualUNet(nn.Module):
                 "in_channels": self.in_channels,
                 "base_channels": self.base_channels,
                 "dropout": self.dropout,
-                "logspace": self.logspace,
                 "normalize": self.normalize,
                 "predict_background": self.predict_background,
                 "reduced_channels": self.reduced_channels,

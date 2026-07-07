@@ -171,7 +171,7 @@ def train(config: dict, experiment_name=None):
     # -------------------------------
     criterion = CombinedLoss(
         device, 
-        model.logspace, 
+        config["logspace"], 
         profile_scale, 
         individual_profiles=not same_sample_batch, 
         loss_1d=loss_1d, 
@@ -183,7 +183,7 @@ def train(config: dict, experiment_name=None):
     )
     eval_criterion = CombinedLoss(
         device, 
-        model.logspace, 
+        config["logspace"], 
         profile_scale, 
         individual_profiles=False, 
         loss_1d=torch.nn.L1Loss(reduction="sum"), 
@@ -344,6 +344,8 @@ if __name__ == "__main__":
         # This constant controls noise level, higher value means more noise reduction
         # It is a multiplier for noise level estimated for each image
         "local_consistency_noise_constant": 0.3,
+        # 2d loss, local consistency (final sparse error) and l1 is calculated on log(x + 1) inputs
+        "logspace": True,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets
@@ -375,8 +377,6 @@ if __name__ == "__main__":
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
             "normalization_constant": 11810,
-            # Network inputs is log(input + 1), done before normalization
-            "logspace": True,
             # If true, clean = input - output;
             # otherwise, clean = output
             "predict_background": True
