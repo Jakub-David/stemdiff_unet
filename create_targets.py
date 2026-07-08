@@ -4,8 +4,8 @@ import h5py
 import matplotlib.pyplot as plt
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from idiff.bkg2d import gaussian
-from unet.dataset_enhancement import zero_spatial_edges
 from unet.data import rescale
+import stemdiff as sd
 
 
 dataset_dir = Path("unet/dataset/")
@@ -39,7 +39,7 @@ def enhance_single(img, sigma, thr, area_size, normalize, scale_factor):
             img_rescaled = img
         img_rescaled = img_rescaled.astype(np.float32) # This improves processing speed
         img_processed = gaussian(img_rescaled, thr, area_size, sigma, normalize)
-        img_processed = zero_spatial_edges(img_processed, border_width=5)
+        img_processed = sd.io.Arrays.zero_spatial_edges(img_processed, border_width=5)
         return img_processed.astype(np.float16)
         
 def enhance_fn_mc(dataset, sigma, thr, area_size, normalize, show_n=0, skip_rest=False):

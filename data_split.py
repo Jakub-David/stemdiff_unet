@@ -1,9 +1,26 @@
-from examples.sum.sum_fn import load_cached
-from unet.dataset_enhancement import save_h5
+from sum_fn import load_cached
+import h5py
 from pathlib import Path
 import numpy as np
 import stemdiff
 import pandas as pd
+
+def save_h5(data, path, compression="gzip"):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(path, 'w') as hf:
+        for name, data in data.items():
+
+            chunk_shape = (1, *data.shape[1:])
+            
+            hf.create_dataset(
+                name, 
+                data=data,  
+                compression=compression, 
+                chunks=chunk_shape,
+                shuffle=True 
+            )
 
 def split_df(df, use_max_rows=8_000):
     # 1. Shuffle the entire dataframe

@@ -10,7 +10,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
 
-from examples.sum.sum_fn import *
+from sum_fn import *
 import ediff as ed
 
 # ==========================================

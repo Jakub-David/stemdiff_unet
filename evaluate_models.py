@@ -1,6 +1,6 @@
 from unet.model import ResidualUNet
 from unet import to_onnx
-from examples.sum.sum_fn import load_cached, filter_datafiles, create_profile
+from sum_fn import load_cached, filter_datafiles, create_profile
 from pathlib import Path
 from typing import Callable
 import stemdiff as sd
