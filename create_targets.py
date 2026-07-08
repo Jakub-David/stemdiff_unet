@@ -75,19 +75,19 @@ if __name__ == "__main__":
                 pass
 
         name = "au"
-        result = enhance_fn_mc(dataset[name], sigma=1.5, thr=6, area_size=10, normalize=True, show_n=show_n, skip_rest=skip_rest)
+        result = enhance_fn_mc(dataset[name], sigma=1.5, thr=6, area_size=7, normalize=True, show_n=show_n, skip_rest=skip_rest)
         save_dataset(name, result, result_path)
         print(f"{name}: {result.shape}")
         result = None # Free memory
 
         name = "tbf3"
-        result = enhance_fn_mc(dataset[name], sigma=10, thr=1, area_size=4, normalize=True, show_n=show_n, skip_rest=skip_rest)
+        result = enhance_fn_mc(dataset[name], sigma=2.5, thr=1, area_size=3, normalize=True, show_n=show_n, skip_rest=skip_rest)
         save_dataset(name, result, result_path)
         print(f"{name}: {result.shape}")
         result = None # Free memory
 
         name = "feo"
-        result = enhance_fn_mc(dataset[name], sigma=3, thr=6, area_size=4, normalize=True, show_n=show_n, skip_rest=skip_rest)
+        result = enhance_fn_mc(dataset[name], sigma=2, thr=6, area_size=5, normalize=True, show_n=show_n, skip_rest=skip_rest)
         save_dataset(name, result, result_path)
         print(f"{name}: {result.shape}")
         result = None # Free memory
@@ -99,7 +99,7 @@ if __name__ == "__main__":
         result = None # Free memory
 
         name = "gdf3"
-        result = enhance_fn_mc(dataset[name], sigma=10, thr=1, area_size=3, normalize=True, show_n=show_n, skip_rest=skip_rest)
+        result = enhance_fn_mc(dataset[name], sigma=2.5, thr=1, area_size=3, normalize=True, show_n=show_n, skip_rest=skip_rest)
         save_dataset(name, result, result_path)
         print(f"{name}: {result.shape}")
         result = None # Free memory

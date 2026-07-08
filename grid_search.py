@@ -9,7 +9,6 @@ import scipy.spatial.distance
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partialmethod
-from datetime import datetime
 
 from examples.sum.sum_fn import *
 import ediff as ed
@@ -72,7 +71,7 @@ DATASETS = {
     "au": {
         "path": DATA_DIR / "1_AU/EX1.AU/DATA",
         "cif_path": "DATA.STEMDIFF/cif/au_9008463.cif",
-        "xrd_path": "unet/dataset/au",
+        "xrd_path": "DATA.STEMDIFF/profiles/au",
         "xrange": (55, 800),
         "xrd_range": None,
         "db_path": "unet/dataset/dbase/",
@@ -82,7 +81,7 @@ DATASETS = {
     "tbf3": {
         "path": DATA_DIR / "2_TBF3/VZ2.TBF3.R2",
         "cif_path": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
-        "xrd_path": "unet/dataset/tbf3",
+        "xrd_path": "DATA.STEMDIFF/profiles/tbf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.9),
         "db_path": "unet/dataset/dbase/",
@@ -92,7 +91,7 @@ DATASETS = {
     "feo": {
         "path": DATA_DIR / "3_FEO_PURE/FeO-Pure_Cimc",
         "cif_path": "DATA.STEMDIFF/cif/Fe3O4.cif",
-        "xrd_path": "unet/dataset/feo",
+        "xrd_path": "DATA.STEMDIFF/profiles/feo",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
         "db_path": "unet/dataset/dbase/",
@@ -102,7 +101,7 @@ DATASETS = {
     "laf3": {
         "path": DATA_DIR / "4_MARUSKA_LAF3/D_MARUSKA_C214",
         "cif_path": "DATA.STEMDIFF/cif/laf3_9008114.cif",
-        "xrd_path": "unet/dataset/laf3",
+        "xrd_path": "DATA.STEMDIFF/profiles/laf3",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
         "db_path": "unet/dataset/dbase/",
@@ -112,7 +111,7 @@ DATASETS = {
     "gdf3": {
         "path": DATA_DIR / "X1_GDF3/VZ2.GDF3.R2",
         "cif_path": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
-        "xrd_path": "unet/dataset/gdf3",
+        "xrd_path": "DATA.STEMDIFF/profiles/gdf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.8),
         "db_path": "unet/dataset/dbase/",
@@ -178,7 +177,7 @@ def evaluate_single_combination(bkgp, ds_cache_dir, SDATA, DIFFIMAGES, df, XRD,
             xrd_range=xrd_range,
             show=False,
             center=None,
-            in_file="examples/sum/center.txt",
+            in_file="DATA.STEMDIFF/center.txt",
         )
         with open(prof_cache_path, "wb") as f:
             pickle.dump(prof_gaussian, f)
@@ -332,21 +331,20 @@ if __name__ == "__main__":
     ]
     
     run_name = f"profile_sigma_0.03"
-    for profile_sigma in [None]:
-        for metric in metrics:
-            result_dir = Path("grid_search_results") / run_name / \
-                f"{metric.__name__}_{datetime.now().strftime("%Y%m%d_%H%M%S")}_psigma{profile_sigma}"
-            result_dir.mkdir(parents=True)
+    for metric in metrics:
+        result_dir = Path("grid_search_results") / run_name / metric.__name__
+        result_dir.mkdir(parents=True)
 
-            for ds_name, ds_config in DATASETS.items():
-                best_p, best_s, all_res = run_grid_search_parallel(
-                    ds_name, 
-                    ds_config, 
-                    combinations,
-                    metric,
-                    recalculate_profiles=True,
-                    visualize_best=False,
-                    verbose=False,
-                    result_dir=result_dir,
-                    profile_sigma=profile_sigma
-                )
+        for ds_name, ds_config in DATASETS.items():
+            best_p, best_s, all_res = run_grid_search_parallel(
+                ds_name, 
+                ds_config, 
+                combinations,
+                metric,
+                # Set to True, if calibration related parameters are changed
+                recalculate_profiles=False, 
+                visualize_best=False,
+                verbose=False,
+                result_dir=result_dir,
+                profile_sigma=0.03
+            )

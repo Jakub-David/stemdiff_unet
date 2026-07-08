@@ -7,6 +7,7 @@ from pathlib import Path
 import h5py
 import cv2 as cv
 import stemdiff as sd
+import ediff as ed
 
 CALIBRATION_CONSTANTS = {
     'au': 0.03377241772151899, 
@@ -17,6 +18,16 @@ CALIBRATION_CONSTANTS = {
     'tio2-a': 0.03191196428571429, 
     'tio2-r': 0.03171350819672131, 
     'feo_shell': 0.031111495408000765 * 0.99
+}
+cif_paths = {
+    "au": "../DATA.STEMDIFF/cif/au_9008463.cif",
+    "tbf3": "../DATA.STEMDIFF/cif/1530594_tbf3.cif",
+    "feo": "../DATA.STEMDIFF/cif/Fe3O4.cif",
+    "feo_shell": "../DATA.STEMDIFF/cif/Fe3O4.cif",
+    "laf3": "../DATA.STEMDIFF/cif/laf3_9008114.cif",
+    "gdf3": "../DATA.STEMDIFF/cif/1530594_gdf3.cif",
+    "tio2-a": "../DATA.STEMDIFF/cif/tio2_anatase_9015929.cif",
+    "tio2-r": "../DATA.STEMDIFF/cif/tio2_rutile_9015662.cif",
 }
 
 
@@ -116,7 +127,13 @@ class STEMDataset(Dataset):
         self.centers = {}
         max_prof_len = 0
         for key in sorted(f_in.keys()):
-            df = pd.read_csv(profiles_dir / key, sep=r'\s+')
+            XRD = ed.pcryst.XRD_polycrystal(
+                structure=cif_paths[key],
+                wavelength=0.71,
+                two_theta_range=(5, 100),
+                peak_profile_sigma=0.03,
+            )
+            df = XRD.diffractogram
             q = torch.from_numpy(df.q.to_numpy()).float()
             I = torch.from_numpy(df.I.to_numpy()).float()
             p = resize_profile(q, I, CALIBRATION_CONSTANTS[key], profile_scale)

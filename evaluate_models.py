@@ -10,6 +10,8 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 import pickle
+import json
+import scipy.stats
 from grid_search import (
     reverse_kl_divergence, 
     symmetric_cross_entropy, 
@@ -52,7 +54,7 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         psf = sd.summ.sum_datafiles(
             SDATA, 
             DIFFIMAGES, 
-            df,
+            df_psf,
             bkg=bkg, 
             bkgp=bkgp,
         )
@@ -117,15 +119,12 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
     xrd_diff = XRD.diffractogram
     eld_I = np.interp(xrd_diff.q, eld_diff.q, eld_diff.I)
 
-    plt.figure()
-    plt.plot(xrd_diff.q, xrd_diff.I, label="XRD")
-    plt.plot(xrd_diff.q, eld_I, label="ELD")
-    plt.legend()
-    plt.savefig(current_results_dir / f"{sample_name}_deconv{deconv}_interpolated.svg")
-
     scores = {}
     for metric in metrics:
-        score = metric(xrd_diff.I, eld_I)
+        if eld_diff.I.sum() < 1.2:
+            score = np.inf
+        else:
+            score = metric(xrd_diff.I, eld_I)
         scores[metric.__name__] = score
 
     return scores
@@ -181,6 +180,8 @@ if __name__ == "__main__":
     results_dir.mkdir(exist_ok=True)
     models_dir = results_dir / "models"
     models_dir.mkdir(exist_ok=True)
+    with (results_dir / "models.json").open("w") as f:
+        json.dump(model_paths, f, indent=4)
 
     all_results = []
     for name, (m, p) in models.items():
@@ -253,11 +254,15 @@ if __name__ == "__main__":
     # 2. Convert to a DataFrame
     df = pd.DataFrame(all_results)
 
-    # 3. Calculate the mean over the samples
+    # 3. Add geo mean
+    metric_cols = [metric.__name__ for metric in metrics]
+    df["error geo mean"] = scipy.stats.gmean(df[metric_cols], axis=1)
+
+    # 4. Calculate the mean over the samples
     # We group by 'Method/Model' and 'Deconv' so that the 'Sample' column is averaged out
     df_mean = df.groupby(["Method/Model", "Deconv"]).mean(numeric_only=True).reset_index()
 
-    # 4. Save the DataFrames to CSV files
+    # 5. Save the DataFrames to CSV files
     df.to_csv(results_dir / "detailed_scores.csv", index=False)
     df_mean.to_csv(results_dir / "mean_scores.csv", index=False)
 
