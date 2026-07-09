@@ -37,29 +37,25 @@ calibration_constants = {
 }
 
 models = {
-    "2D": ResidualUNet.load("unet/runs/20260708_184202_2D_bc4_lr0.001_lTrue_nc11810/residual_unet_epoch14.pt"),
-    "Self Supervised": ResidualUNet.load("unet/runs/20260709_001306_self_sup_lr0.001_min_lr0.0001_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt"),
+    # "2D": ResidualUNet.load("unet/runs/20260708_184202_2D_bc4_lr0.001_lTrue_nc11810/residual_unet_epoch14.pt"),
+    # "Self Supervised": ResidualUNet.load("unet/runs/20260709_001306_self_sup_lr0.001_min_lr0.0001_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt"),
 }
 
 runs_dir = Path("unet/runs")
 
-# model_paths = runs_dir.glob("*2D_bc4*/*.pt")
-# training_type = "2D"
-# for p in model_paths:
-#     time = p.parent.name.split("_")[1]
-#     epoch = p.stem.removeprefix("residual_unet_epoch")
-#     # if time < "163929":
-#     #     continue
-#     if "lr0.0001" in p.parent.name and "lFalse_ncNone" not in p.parent.name:
-#         continue
-#     models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
+model_paths = runs_dir.glob("*2D_bc4*/*.pt")
+training_type = "2D"
+for p in model_paths:
+    time = p.parent.name.split("_")[1]
+    epoch = p.stem.removeprefix("residual_unet_epoch")
+    models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
 
-# model_paths = runs_dir.glob("*self_sup_lr*/*.pt")
-# training_type = "Self Supervised"
-# for p in model_paths:
-#     time = p.parent.name.split("_")[1]
-#     epoch = p.stem.removeprefix("residual_unet_epoch")
-#     models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
+model_paths = runs_dir.glob("*self_sup_lr*/*.pt")
+training_type = "Self Supervised"
+for p in model_paths:
+    time = p.parent.name.split("_")[1]
+    epoch = p.stem.removeprefix("residual_unet_epoch")
+    models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
 
 
 model_paths = runs_dir.glob("*self_sup_all*/*.pt")

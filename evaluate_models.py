@@ -166,7 +166,7 @@ if __name__ == "__main__":
     
     model_paths = {
         "2D": "20260708_184202_2D_bc4_lr0.001_lTrue_nc11810/residual_unet_epoch14.pt",
-        "Self Supervised": "20260709_001306_self_sup_lr0.001_min_lr0.0001_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt",
+        "Self Supervised": "20260709_002110_self_sup_lr0.001_min_lr0.0001_lc0.55_c0_bc4_lTrue/residual_unet_epoch4.pt",
         "Self Supervised - All Data": "20260709_132639_self_sup_all_lr0.0001_min_lr1e-05_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt",
     }
     models = {n: ResidualUNet.load("unet/runs/" + p) for n, p in model_paths.items()}
