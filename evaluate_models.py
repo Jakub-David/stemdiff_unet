@@ -163,11 +163,13 @@ if __name__ == "__main__":
         'feo_shell': 0.031111495408000765 * 0.99
     }
 
-    models = {
-        "Self Supervised": ResidualUNet.load("unet/runs/20260627_182011_self_sup_lr0.0006_lc0.6_bc1_reduced_60epochs/residual_unet_epoch36.pt"),
-        "Self Supervised - All Data": ResidualUNet.load("unet/runs/20260628_004355_self_sup_all_lr6e-4_min_lr3e-7_25epochs/residual_unet_epoch13.pt"),
-        "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
+    
+    model_paths = {
+        "2D": "20260708_184202_2D_bc4_lr0.001_lTrue_nc11810/residual_unet_epoch14.pt",
+        "Self Supervised": "20260709_001306_self_sup_lr0.001_min_lr0.0001_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt",
+        "Self Supervised - All Data": "20260709_132639_self_sup_all_lr0.0001_min_lr1e-05_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt",
     }
+    models = {n: ResidualUNet.load("unet/runs/" + p) for n, p in model_paths.items()}
     
     metrics = [
         reverse_kl_divergence,
@@ -228,9 +230,10 @@ if __name__ == "__main__":
                 metrics,
                 3,
                 {
-                    "sigma": 2.2,
-                    "thr": 2.2,
-                    "area_size": 7.2,
+                    # TODO: maybe use grid search results and for the rest mean params 
+                    "sigma": 2.1,
+                    "thr": 4,
+                    "area_size": 4.6,
                     "normalize": True
                 },
                 deconv,

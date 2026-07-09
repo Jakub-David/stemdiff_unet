@@ -1,8 +1,8 @@
 import numpy as np
 
-sigmas = [1.5, 2.5, 1.5, 3, 2.5]
-thrs = [1.5, 2, 1, 5, 1.5]
-area_sizes = [6, 10, 8, 8, 4]
+sigmas = [1.5, 2.5, 2, 2, 2.5]
+thrs = [6, 1, 6, 6, 1]
+area_sizes = [7, 3, 5, 5, 3]
 
 print("sigma:", np.mean(sigmas))
 print("thr:", np.mean(thrs))

@@ -4,6 +4,7 @@ from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
 import h5py
+import scipy.stats
 from evaluate_models import evaluate_sample
 from grid_search import (
     reverse_kl_divergence, 
@@ -36,13 +37,37 @@ calibration_constants = {
 }
 
 models = {
-    "2D": ResidualUNet.load("unet/runs/20260625_181213_2D_lr0.0001_nc11810_lTrue_HuberLoss/residual_unet_epoch20.pt"),
+    "2D": ResidualUNet.load("unet/runs/20260708_184202_2D_bc4_lr0.001_lTrue_nc11810/residual_unet_epoch14.pt"),
+    "Self Supervised": ResidualUNet.load("unet/runs/20260709_001306_self_sup_lr0.001_min_lr0.0001_lc0.55_c0_bc4_lFalse/residual_unet_epoch4.pt"),
 }
 
-model_dir = "20260628_013819_self_sup_all_lr6e-4_min_lr2e-7_25epochs"
+runs_dir = Path("unet/runs")
 
-for i in range(5, 26):
-    models[f"Self Supervised - Epoch {i}"] = ResidualUNet.load(f"unet/runs/{model_dir}/residual_unet_epoch{i}.pt")
+# model_paths = runs_dir.glob("*2D_bc4*/*.pt")
+# training_type = "2D"
+# for p in model_paths:
+#     time = p.parent.name.split("_")[1]
+#     epoch = p.stem.removeprefix("residual_unet_epoch")
+#     # if time < "163929":
+#     #     continue
+#     if "lr0.0001" in p.parent.name and "lFalse_ncNone" not in p.parent.name:
+#         continue
+#     models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
+
+# model_paths = runs_dir.glob("*self_sup_lr*/*.pt")
+# training_type = "Self Supervised"
+# for p in model_paths:
+#     time = p.parent.name.split("_")[1]
+#     epoch = p.stem.removeprefix("residual_unet_epoch")
+#     models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
+
+
+model_paths = runs_dir.glob("*self_sup_all*/*.pt")
+training_type = "Self Supervised All Data"
+for p in model_paths:
+    time = p.parent.name.split("_")[1]
+    epoch = p.stem.removeprefix("residual_unet_epoch")
+    models[f"{training_type} - {time} e{epoch}"] = ResidualUNet.load(p)
 
 metrics = [
     reverse_kl_divergence,
@@ -51,13 +76,13 @@ metrics = [
 ]
 
 db_dir = Path("unet/dataset/dbase/")
-results_dir = Path("evaluation_results_val") / model_dir
+results_dir = Path("evaluation_results_val") / training_type
 models_dir = results_dir / "models"
 models_dir.mkdir(exist_ok=True, parents=True)
 
 all_results = []
 for name, (m, p) in tqdm(models.items()):
-    print("Evaluating model:", name)
+    tqdm.write("Evaluating model: " + name)
     model_onnx_path = models_dir / f"{name}.onnx"
     to_onnx.convert(
         m, 
@@ -96,11 +121,15 @@ for name, (m, p) in tqdm(models.items()):
 # 2. Convert to a DataFrame
 df = pd.DataFrame(all_results)
 
-# 3. Calculate the mean over the samples
+# 3. Add geo mean
+metric_cols = [metric.__name__ for metric in metrics]
+df["error geo mean"] = scipy.stats.gmean(df[metric_cols], axis=1)
+
+# 4. Calculate the mean over the samples
 # We group by 'Method/Model' and 'Deconv' so that the 'Sample' column is averaged out
 df_mean = df.groupby(["Method/Model", "Deconv"]).mean(numeric_only=True).reset_index()
 
-# 4. Save the DataFrames to CSV files
+# 5. Save the DataFrames to CSV files
 df.to_csv(results_dir / "detailed_scores.csv", index=False)
 df_mean.to_csv(results_dir / "mean_scores.csv", index=False)
 

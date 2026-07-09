@@ -1,6 +1,5 @@
 from train import train
 import torch
-import loss
 
 if __name__ == "__main__":
     config = {
@@ -24,6 +23,8 @@ if __name__ == "__main__":
         # This constant controls noise level, higher value means more noise reduction
         # It is a multiplier for noise level estimated for each image
         "local_consistency_noise_constant": 0.3,
+        # 2d loss, local consistency (final sparse error) and l1 is calculated on log(x + 1) inputs
+        "logspace": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets
@@ -32,9 +33,9 @@ if __name__ == "__main__":
         # For "2D" dataset only used in logging
         "profile_scale": 1,
         # Initial learning rate
-        "lr": ..., # set later
+        "lr": ...,
         # Final learning rate (cosine decay)
-        "min_lr": ..., # set later
+        "min_lr": ...,
         # Number of training epochs
         "num_epochs": 20,
         # Log every n steps, n = -1 no logging
@@ -47,28 +48,28 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": ..., # set later
+            "base_channels": ...,
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
-            "reduced_channels": ..., # set later
+            "reduced_channels": False,
             # Normalize input (and denormalize output)
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
-            "normalization_constant": None,
-            # Network inputs is log(input + 1), done before normalization
-            "logspace": True,
+            "normalization_constant": ...,
             # If true, clean = input - output;
             # otherwise, clean = output
             "predict_background": True
         },
     }
 
-    for lr in [1e-3, 1e-4, 1e-5]:
-        config["lr"] = lr
-        config["min_lr"] = lr / 10
-        for bc in [1, 2, 4]:
-            config["model_params"]["base_channels"] = bc
-            for reduced in [False, True]:
-                config["model_params"]["reduced_channels"] = reduced
-                exp_id = train(config, f"2D_bc{bc}_lr{lr:g}_reduced{reduced}")
+    for bc in [1, 4]:
+        for lr in [1e-3, 1e-4]:
+            for n in [11810, None]:
+                for logspace in [True, False]:
+                    config["lr"] = lr
+                    config["min_lr"] = lr / 10
+                    config["logspace"] = logspace
+                    config["model_params"]["base_channels"] = bc
+                    config["model_params"]["normalization_constant"] = n
+                    exp_id = train(config, f"2D_bc{bc}_lr{lr:g}_l{logspace}_nc{n}")
     

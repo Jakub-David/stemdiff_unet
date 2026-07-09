@@ -1,9 +1,6 @@
 from train import train
-import torch
-import loss
 
 if __name__ == "__main__":
-    # use ... for params set later
     config = {
         # Directory containing the dataset
         "dataset_dir": "dataset",
@@ -24,7 +21,9 @@ if __name__ == "__main__":
         "local_consistency_reg": ...,
         # This constant controls noise level, higher value means more noise reduction
         # It is a multiplier for noise level estimated for each image
-        "local_consistency_noise_constant": 0.3,
+        "local_consistency_noise_constant": ...,
+        # 2d loss, local consistency (final sparse error) and l1 is calculated on log(x + 1) inputs
+        "logspace": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets
@@ -35,9 +34,9 @@ if __name__ == "__main__":
         # Initial learning rate
         "lr": ..., 
         # Final learning rate (cosine decay)
-        "min_lr": ..., 
+        "min_lr": 1e-4, 
         # Number of training epochs
-        "num_epochs": 60,
+        "num_epochs": 20,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -48,28 +47,27 @@ if __name__ == "__main__":
             # Number of channels of input data, should be 1
             "in_channels": 1,
             # Number of channels on the first level of unet
-            "base_channels": 1, 
+            "base_channels": 4, 
             # If true, Level n has `base_channels + (n - 1)` channels;
             # otherwise, level n has `base_channels * 2^n` channels
-            "reduced_channels": True, 
+            "reduced_channels": False, 
             # Normalize input (and denormalize output)
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
             "normalization_constant": None,
-            # Network inputs is log(input + 1), done before normalization
-            "logspace": False,
             # If true, clean = input - output;
             # otherwise, clean = output
             "predict_background": True
         },
     }
 
-    for lc in [0.6]:
-        l1 = 1 - lc
-        for lr in [6e-4]:
-            config["l1_regularization"] = l1
-            config["local_consistency_reg"] = lc
-            config["lr"] = lr
-            config["min_lr"] = 1e-6
-            exp_id = train(config, f"self_sup_lr{lr}_lc{lc}_bc1_reduced_{config['num_epochs']}epochs")
-
+    for lc in [0.5, 0.55]:
+        for c in [0, 0.5, 1]:
+            for lr in [1e-3]:
+                for logspace in [False, True]:
+                    config["lr"] = lr
+                    config["local_consistency_noise_constant"] = c
+                    config["logspace"] = logspace
+                    config["local_consistency_reg"] = lc
+                    config["l1_regularization"] = 1 - lc
+                    exp_id = train(config, f"self_sup_lr{config['lr']}_min_lr{config['min_lr']}_lc{lc}_c{c}_bc4_l{logspace}")

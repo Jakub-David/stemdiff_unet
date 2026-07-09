@@ -22,6 +22,8 @@ if __name__ == "__main__":
         # This constant controls noise level, higher value means more noise reduction
         # It is a multiplier for noise level estimated for each image
         "local_consistency_noise_constant": ...,
+        # 2d loss, local consistency (final sparse error) and l1 is calculated on log(x + 1) inputs
+        "logspace": ...,
         # Batches contain images only for one sample (e.g. a batch contains only Au)
         "same_sample_batch": False,
         # Rescale input images and 2D targets
@@ -32,9 +34,9 @@ if __name__ == "__main__":
         # Initial learning rate
         "lr": ..., 
         # Final learning rate (cosine decay)
-        "min_lr": 1e-6, 
+        "min_lr": 1e-5, 
         # Number of training epochs
-        "num_epochs": 10,
+        "num_epochs": 5,
         # Log every n steps, n = -1 no logging
         # Does not affect loss logging and lagging at the end of epoch
         "log_interval": -1,
@@ -53,20 +55,19 @@ if __name__ == "__main__":
             "normalize": True,
             # Should be detectors max. value (11810). If None, use standardization
             "normalization_constant": None,
-            # Network inputs is log(input + 1), done before normalization
-            "logspace": False,
             # If true, clean = input - output;
             # otherwise, clean = output
             "predict_background": True
         },
     }
 
-    for lc in [0.6, 0.65]:
-        for c in [1, 0.5]:
-            for lr in [1e-3, 5e-4, 1e-4]:
-                config["lr"] = lr
-                config["local_consistency_noise_constant"] = c
-                config["local_consistency_reg"] = lc
-                config["l1_regularization"] = 1 - lc
-                exp_id = train(config, f"self_sup_all_lr{config['lr']}_min_lr{config['min_lr']}_lc{lc}_c{c}_{config['num_epochs']}epochs_bc4_reducedFalse")
-    
+    for lc in [0.55]:
+        for c in [0]:
+            for lr in [1e-3]:
+                for logspace in [True, False]:
+                    config["lr"] = lr
+                    config["local_consistency_noise_constant"] = c
+                    config["logspace"] = logspace
+                    config["local_consistency_reg"] = lc
+                    config["l1_regularization"] = 1 - lc
+                    exp_id = train(config, f"self_sup_all_lr{config['lr']}_min_lr{config['min_lr']}_lc{lc}_c{c}_bc4_l{logspace}")
