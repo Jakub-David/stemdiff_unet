@@ -19,10 +19,6 @@ unet/runs*/
 grid_search_cache/
 grid_search_results/
 
-# Models
-unet/model*.onnx
-models/
-
 # Examples
 examples/BGROUND/FFUNC
 examples/BGROUND/POINTS.IPLOT
@@ -31,16 +27,12 @@ examples/BGROUND/WVLET
 examples/BGROUND/00readme.txt
 
 examples/direct_sum_profiles/
+examples/direct_sum_profiles_no_deconv/
 examples/sample_examples/
+examples/result_profiles
 examples/au_1d_radial_dist.png
 examples/au_1d_radial_dist.svg
 examples/au_2d_powder_diff.png
 
-# Old notebooks
-unet/old_nb/
-examples/STEMDIFF/
-old_nb/
-
 # Results
 evaluation_results*/
-unet/*results*.ipynb
