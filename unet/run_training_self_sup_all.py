@@ -63,7 +63,7 @@ if __name__ == "__main__":
 
     for lc in [0.55]:
         for c in [0]:
-            for lr in [1e-3]:
+            for lr in [1e-3, 3e-4, 1e-4]:
                 for logspace in [True, False]:
                     config["lr"] = lr
                     config["local_consistency_noise_constant"] = c

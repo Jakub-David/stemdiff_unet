@@ -29,7 +29,8 @@ examples/BGROUND/00readme.txt
 examples/direct_sum_profiles/
 examples/direct_sum_profiles_no_deconv/
 examples/sample_examples/
-examples/result_profiles
+examples/result_profiles/
+examples/grid_search_profiles
 examples/au_1d_radial_dist.png
 examples/au_1d_radial_dist.svg
 examples/au_2d_powder_diff.png
