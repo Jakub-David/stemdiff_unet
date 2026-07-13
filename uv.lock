@@ -19,12 +19,8 @@ wheels = [
 
 [[package]]
 name = "bground"
-version = "1.3.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/dd/dd/4391c30e47aa453a9abc45e9e0776ddc9b1888549fff145484b80c4b9724/bground-1.3.3.tar.gz", hash = "sha256:cce426b2244c21dafeaa4d1ab3d0dc97ec83c6733588c979b74894bd78ddd59f", size = 32440, upload-time = "2026-05-24T16:28:31.24Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/04/efcf3c7db328b140c232512fc058361e52516bff1ce37d68e8b8daec570b/bground-1.3.3-py3-none-any.whl", hash = "sha256:f8cfa26a8f14d503224990f87e236b9a021e9f8c66483f5f07fd217dc144a8f6", size = 35404, upload-time = "2026-05-24T16:28:29.932Z" },
-]
+version = "1.3.5"
+source = { git = "https://github.com/mirekslouf/bground.git?rev=2d4f817498799c7674c270c1291d9c440431b56f#2d4f817498799c7674c270c1291d9c440431b56f" }
 
 [[package]]
 name = "bibtexparser"
@@ -215,8 +211,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bground", specifier = ">=1.3.3" },
-    { name = "ediff", specifier = ">=1.2.0" },
+    { name = "bground", git = "https://github.com/mirekslouf/bground.git?rev=2d4f817498799c7674c270c1291d9c440431b56f" },
+    { name = "ediff", git = "https://github.com/mirekslouf/ediff.git?rev=5a8ecfa27a33c8ae3a4f14daf2776780e7629efc" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "idiff", git = "https://github.com/mirekslouf/idiff.git?rev=088a4f24f728474443a5b9124506da84a4cf2e59" },
     { name = "matplotlib", specifier = ">=3.10.8" },
@@ -240,12 +236,8 @@ requires-dist = [
 
 [[package]]
 name = "ediff"
-version = "1.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/72/5c/4fa5fbbbd669f6ea11599f261d1478a7dfb5c609283684875364bbf15377/ediff-1.2.0.tar.gz", hash = "sha256:957cc6eb8ae30d845ddb5fa2837126d316f6470cb11995fdfdc4934806243c72", size = 78191, upload-time = "2026-05-24T17:17:45.212Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/09/bbaff683fcff0657e539a18c6df21fddb90fb737ad05713e64f150795177/ediff-1.2.0-py3-none-any.whl", hash = "sha256:4dc929aa76c33c5365fa98c1674abbfb5fe87f05a9ceb60a8dc87e2481c1fd16", size = 80769, upload-time = "2026-05-24T17:17:43.92Z" },
-]
+version = "1.2.7"
+source = { git = "https://github.com/mirekslouf/ediff.git?rev=5a8ecfa27a33c8ae3a4f14daf2776780e7629efc#5a8ecfa27a33c8ae3a4f14daf2776780e7629efc" }
 
 [[package]]
 name = "filelock"

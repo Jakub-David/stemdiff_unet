@@ -31,3 +31,5 @@ dependencies = [
 [tool.uv.sources]
 idiff = { git = "https://github.com/mirekslouf/idiff.git", rev = "088a4f24f728474443a5b9124506da84a4cf2e59" }
 stemdiff = { git = "https://github.com/mirekslouf/stemdiff.git", rev = "f7ffb138b9c21207bec2c84714bc38a9e457a254" }
+ediff = { git = "https://github.com/mirekslouf/ediff.git", rev = "5a8ecfa27a33c8ae3a4f14daf2776780e7629efc" }
+bground = { git = "https://github.com/mirekslouf/bground.git", rev = "2d4f817498799c7674c270c1291d9c440431b56f" }

@@ -111,8 +111,9 @@ def load_cached(path, name, db_dir="dbase", db_file=None, calculate_db=True):
         dbase = Path(db_dir / db_file)
 
     if not dbase.exists() and calculate_db:
-        print("Warning: dbase not found - calculating new dbase")
+        print("dbase not found - calculating new dbase")
         df = sd.dbase.calc_database(SDATA, DIFFIMAGES)
+        db_dir.mkdir(exist_ok=True)
         sd.dbase.save_database(df, dbase)
     else:
         df = sd.dbase.read_database(dbase)
