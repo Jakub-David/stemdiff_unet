@@ -20,7 +20,7 @@ from grid_search import (
 
 def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: dict, deconv: int,
                     results_dir: Path, samples: dict, cif_paths: dict, calibration_constants: dict,
-                    visualize=False, split_name="test"):
+                    visualize=False, split_name="test", db_dir="unet/dataset/dbase", deconv_iter=10):
     if bkg == 3:
         run_name = "gaussian"
     else:
@@ -32,7 +32,7 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
     SDATA, DIFFIMAGES, df_all = load_cached(
         Path(samples[sample_name]), 
         sample_name,
-        "unet/dataset/dbase",
+        db_dir,
         f"db_{split_name}_{sample_name}",
         calculate_db=False
     )
@@ -81,7 +81,7 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         bkg=bkg, 
         bkgp=bkgp,
         deconv=deconv,
-        deconvp={"num_iter": 10, "psf": psf}
+        deconvp={"num_iter": deconv_iter, "psf": psf}
     )
 
     if sample_name in ["tbf3", "gdf3"]:
@@ -97,7 +97,7 @@ def evaluate_sample(sample_name: str, metrics: list[Callable], bkg: int, bkgp: d
         xrd_range=xrd_range,
         show=False,
         center=None,
-        in_file="examples/sum/center.txt",
+        in_file="DATA.STEMDIFF/center.txt",
     )
 
     if calibration_constants is not None:
@@ -230,7 +230,6 @@ if __name__ == "__main__":
                 metrics,
                 3,
                 {
-                    # TODO: maybe use grid search results and for the rest mean params 
                     "sigma": 2.1,
                     "thr": 4,
                     "area_size": 4.6,
