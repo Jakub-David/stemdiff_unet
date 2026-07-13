@@ -32,6 +32,22 @@ cif_paths = {
 
 
 def resize_profile(q, I, calibration_constant, profile_scale) -> torch.Tensor:
+    """
+    Rescales and bins a 1D diffraction profile (q vs I) into a fixed-coordinate system.
+    
+    Converts XRD (X-ray diffraction) coordinates to ELD (electron diffraction) space using 
+    a calibration constant, then aggregates overlapping points by keeping the maximum intensity 
+    value per target bin.
+
+    Args:
+        q (torch.Tensor): The 1D input scattering vector coordinates.
+        I (torch.Tensor): The 1D input intensities corresponding to `q`.
+        calibration_constant (float): Geometric mapping scale from ELD space to 4x resized XRD images.
+        profile_scale (float): Additional custom scaling coefficient for adjusting resolution.
+
+    Returns:
+        torch.Tensor: A 1D tensor of length `N`, containing the binned, max-reduced intensity values.
+    """
     # Calibration constant is ELD -> XRD for images resized 4x
     calibration_constant = 1 / calibration_constant # XRD -> ELD
     calibration_constant = calibration_constant / 4 # for profile_scale 1
@@ -52,7 +68,23 @@ def resize_profile(q, I, calibration_constant, profile_scale) -> torch.Tensor:
 
     return out
 
+
 def rescale(img, scale_factor=0, dsize=None):
+    """
+    Resizes a 2D image using bicubic interpolation while preserving its maximum original range.
+    
+    Converts the image to 32-bit floats, resizes it via OpenCV according to a scale factor 
+    or explicit shape dimensions, and applies intensity normalization to counter bicubic 
+    clipping/overshooting artifacts before removing negative noise.
+
+    Args:
+        img (np.ndarray): The 2D input image array.
+        scale_factor (float, optional): Multiplier for image width and height. Defaults to 0.
+        dsize (tuple of int, optional): Explicit target dimensions (width, height) for the output image.
+
+    Returns:
+        np.ndarray: The rescaled, peak-normalized, and non-negative clipped float32 image.
+    """
     resized = cv.resize(
         img.astype(np.float32),
         dsize, 
@@ -66,9 +98,14 @@ def rescale(img, scale_factor=0, dsize=None):
     return np.clip(resized, 0, None)
 
 class STEMDataset(Dataset):
+    """
+    A dataset for loading STEM (Scanning Transmission Electron Microscopy) images from H5 files.
+    
+    Maps individual 2D frames to their targets, calculates background noise, 
+    and optionally handles diffraction profile data and center coordinates.
+    """
     def __init__(self, dataset_dir, input_fname, target_fname, scale_factor=1,
-                 include_profiles=False, profile_scale=1, 
-                 profiles_dir=Path("../DATA.STEMDIFF/profiles")):
+                 include_profiles=False, profile_scale=1):
         dataset_dir = Path(dataset_dir)
         self.input_h5 = dataset_dir / input_fname
         self.target_h5 = dataset_dir / target_fname if target_fname is not None else None
@@ -207,6 +244,12 @@ class STEMDataset(Dataset):
     
 
 class SameKeyBatchSampler(Sampler):
+    """
+    A batch sampler that ensures every batch only contains samples sharing the same H5 group key.
+    
+    Useful when different groups have unique tracking properties or metadata 
+    that shouldn't mix within a single forward pass.
+    """
     def __init__(self, index_map, batch_size, drop_last=False, shuffle=False):
         self.batch_size = batch_size
         self.drop_last = drop_last

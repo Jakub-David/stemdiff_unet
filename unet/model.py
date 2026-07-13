@@ -5,7 +5,18 @@ import numpy as np
 from pathlib import Path
 
 class DoubleConv(nn.Module):
+    """
+    A residual block containing two 2D convolutions, instance normalization, 
+    leaky ReLU activations, and optional dropout. Automatically matches 
+    channel dimensions using a 1x1 convolution if needed.
+    """
     def __init__(self, in_channels, out_channels, dropout=0.0):
+        """
+        Args:
+            in_channels (int): Number of channels in the input image/feature map.
+            out_channels (int): Number of channels produced by the convolutional layers.
+            dropout (float): Dropout probability for spatial 2D dropout layers.
+        """
         super().__init__()
         
         # Branch 1: First conv layer group
@@ -48,9 +59,27 @@ class DoubleConv(nn.Module):
 
 
 class ResidualUNet(nn.Module):
+    """
+    A U-Net architecture built with residual blocks (DoubleConv) for image processing.
+    
+    Includes built-in support for per-image or static normalization, skip connections 
+    across the encoder-decoder paths, and a dedicated background subtraction post-processing loop.
+    """
     def __init__(self, in_channels=1, base_channels=8, dropout=0.1, 
                  normalize=True, predict_background=True,
                  reduced_channels=False, normalization_constant=None):
+        """
+        Args:
+            in_channels (int): Number of channels in the input image (e.g., 1 for grayscale).
+            base_channels (int): Starting channel width for the first layer.
+            dropout (float): Maximum dropout probability applied to layers (scaled across depth).
+            normalize (bool): If True, activates standardizing normalization on image entry/exit.
+            predict_background (bool): If True, model isolates and subtracts background noise residually.
+                If False, maps directly using clamped standard activations.
+            reduced_channels (bool): If True, channels scale linearly (+1 per level) rather than doubling.
+            normalization_constant (float, optional): Custom fixed scaling factor. If None, uses dynamically 
+                calculated sample mean and standard deviation.
+        """
         super().__init__()
         self.in_channels = in_channels
         self.base_channels = base_channels
@@ -159,6 +188,10 @@ class ResidualUNet(nn.Module):
         return clean
     
     def predict(self, x):
+        """
+        Runs inference on a single numpy array or torch tensor, automatically 
+        handling shape formatting, device transfers, and conversion back to a numpy array.
+        """
         if isinstance(x, np.ndarray):
             x = torch.from_numpy(x)
 
@@ -181,6 +214,10 @@ class ResidualUNet(nn.Module):
             return clean.squeeze().cpu().numpy()
         
     def batch_predict(self, x, batch_size=100):
+        """
+        Processes a large tensor or numpy array through a sequential DataLoader 
+        to prevent out-of-memory errors on the GPU. Returns a single stacked torch tensor.
+        """
         if isinstance(x, np.ndarray):
             x = torch.from_numpy(x)
 
@@ -209,6 +246,10 @@ class ResidualUNet(nn.Module):
         return torch.cat(outputs).cpu()
     
     def save(self, path, epoch=None, optimizer=None, avg_loss=None):
+        """
+        Saves the model weights, hyperparameter configuration, and current 
+        training state (epoch, optimizer states, loss) to a file checkpoint.
+        """
         torch.save({
             # Weights
             "model_state_dict": self.state_dict(),
@@ -230,6 +271,11 @@ class ResidualUNet(nn.Module):
 
     @staticmethod
     def load(path, pattern=None):
+        """
+        Loads a checkpoint file from disk, completely reconstructs the model 
+        architecture using the saved hyperparameters, maps the weights, and 
+        returns the initialized model along with the underlying state dictionary metadata.
+        """
         if pattern != None:
             path = next(Path(path).glob(pattern))
         c = torch.load(path)

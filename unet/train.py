@@ -111,6 +111,9 @@ def serialize_config(cfg):
     return serialized
 
 def train(config: dict, experiment_name=None):
+    """
+    Example config is in __main__
+    """
     # -------------------------------
     # Extract parameters from config
     # -------------------------------
@@ -333,14 +336,13 @@ if __name__ == "__main__":
         # Final weight of 2d loss
         # (Used only if both losses are used)
         "loss_2d_final_w": 0.7,
-        # Apply l1 regularization on the network output
+        # Apply sparsity regularization on the network output
         # This is the weight for the regularization, 0 means off
-        # Includes penalty negative  values
-        "l1_regularization": 1e-5,
+        "l1_regularization": 0.5,
         # Total variation reg
         "total_variation": 0,
-        # Local consistency reg
-        "local_consistency_reg": 5e-3,
+        # Local consistency loss weight
+        "local_consistency_reg": 0.5,
         # This constant controls noise level, higher value means more noise reduction
         # It is a multiplier for noise level estimated for each image
         "local_consistency_noise_constant": 0.3,
@@ -354,7 +356,7 @@ if __name__ == "__main__":
         # For "2D" dataset only used in logging
         "profile_scale": 1,
         # Initial learning rate
-        "lr": 8e-5,
+        "lr": 1e-3,
         # Final learning rate (cosine decay)
         "min_lr": 1e-5,
         # Number of training epochs
@@ -383,9 +385,5 @@ if __name__ == "__main__":
         },
     }
 
-    for lr in [3e-4]:
-        config["lr"] = lr
-        for bc in [1, 2, 4]:
-            config["model_params"]["base_channels"] = bc
-            exp_id = train(config, f"bc{bc}_logspace_norm_lr{lr:g}_only_reg_lhgauss8-3-k33_s1-k5_l1-1e-5_reduced")
+    exp_id = train(config, "experiment_name")
     

@@ -5,6 +5,12 @@ import numpy as np
 import ediff
 
 class ReverseKLDivLoss(torch.nn.Module):
+    """
+    Computes the Kullback-Leibler (KL) Divergence with reversed arguments: KL(Target || Prediction).
+    
+    Treats 1D signals as probability distributions by smoothing them with an epsilon 
+    value and normalizing them to sum to 1 before calculating divergence.
+    """
     def __init__(self, epsilon = 1e-12, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.kl_div = torch.nn.KLDivLoss(reduction="batchmean")
@@ -29,6 +35,12 @@ class ReverseKLDivLoss(torch.nn.Module):
         return self.kl_div(target.log(), prediction)
     
 class SymmetricMAPELoss(torch.nn.Module):
+    """
+    Computes the Symmetric Mean Absolute Percentage Error (SMAPE) loss.
+    
+    Provides a bound error metric between 0 and 2, preventing division-by-zero 
+    errors or infinite gradients on target values close to or equal to zero.
+    """
     def __init__(self, epsilon = 1e-12, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.epsilon = epsilon
@@ -41,9 +53,27 @@ class SymmetricMAPELoss(torch.nn.Module):
 
 
 class CombinedLoss(torch.nn.Module):
+    """
+    Multi-objective loss function that balances 2D image structural losses, 
+    1D radial profile losses, local structural consistency, and regularization penalization.
+    """
     def __init__(self, device, logspace=False, profile_scale=1, individual_profiles=False, 
                  loss_1d=None, loss_2d=None, l1_reg=0, total_variation=0, local_cons_reg=0,
                  local_cons_noise_c = 0.5):
+        """
+        Args:
+            device (torch.device): Execution device ('cuda' or 'cpu').
+            logspace (bool): If True, computes 2D structural losses in log1p space.
+            profile_scale (int): Coordinate multiplier used to scale radial distribution size.
+            individual_profiles (bool): If True, processes a separate 1D profile for every batch sample.
+                If False, averages 2D representations down into a single global batch profile.
+            loss_1d (nn.Module, optional): 1D profile comparison loss (e.g., ReverseKLDivLoss).
+            loss_2d (nn.Module, optional): 2D spatial image comparison loss (e.g., MSELoss).
+            l1_reg (float): Weight multiplier for L1 sparseness regularization via Huber loss.
+            total_variation (float): Weight multiplier for Total Variation smoothing regularization.
+            local_cons_reg (float): Weight multiplier for Local Consistency structural preservation.
+            local_cons_noise_c (float): Scaling threshold coefficient applied to background noise.
+        """
         super().__init__()
         self.logspace = logspace
         self.profile_scale = profile_scale
@@ -149,6 +179,13 @@ class CombinedLoss(torch.nn.Module):
             return final_loss
 
 def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_scale=1) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Extracts, masks, scales, and normalizes a 1D intensity profile from a 2D image matrix.
+
+    Applies spatial centering shifts, handles option batch aggregation, performs bicubic 
+    interpolation adjustments, masks out central peak zones using a safe radius threshold, 
+    and applies padding constraints to ensure length equality with ground truth labels.
+    """
     target_profile, center_sizes, centers = target
     
     # --- Step 1: Center Images ---
@@ -218,7 +255,7 @@ def prepare_profiles(input2d, target, individual_profiles, rad_dist, profile_sca
 
 def center_images(images: torch.Tensor, centers=None) -> torch.Tensor:
     """
-    Center 2D images in a torch tensor of shape (b, 1, x, x).
+    Centers 2D images in a torch tensor of shape (b, 1, x, x).
     Edges are filled with zeros. Fully vectorized using grid_sample.
     """
     if images.dim() != 4 or images.shape[1] != 1:
@@ -287,6 +324,13 @@ def center_images(images: torch.Tensor, centers=None) -> torch.Tensor:
     return aligned_images
 
 class RadialDistribution(torch.nn.Module):
+    """
+    Highly optimized spatial aggregation layer computing 1D radial profiles from 2D coordinate maps.
+    
+    Pre-computes and caches geometry distances, structural coordinate indexing grids, valid bounds, 
+    and pixel-bin counters upon module initialization to eliminate processing overhead during 
+    runtime execution loops. Supports both 2D (H, W) and 3D (B, H, W) tensors.
+    """
     def __init__(self, height: int, width: int, device: torch.device, dtype=torch.float32):
         super().__init__()
         self.height = height
@@ -331,8 +375,8 @@ class RadialDistribution(torch.nn.Module):
 
     def forward(self, tensor: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Handles both 2D (H,W) and 3D (B,H,W).
-        Everything except batch dimension expansion is entirely precomputed.
+        Extracts structural pixel coordinates using cached masks and aggregates sums 
+        via 2D scatter allocations normalized by the precomputed pixel bin sizes.
         """
         is_2d = tensor.dim() == 2
         if is_2d:
@@ -367,6 +411,9 @@ class RadialDistribution(torch.nn.Module):
         return self.radial_distance, intensity
     
 def gaussian_kernel_2d(kernel_size, sigma, device):
+    """
+    Generates a normalized symmetric 2D Gaussian kernel tensor of shape (kernel_size, kernel_size).
+    """
     x = torch.arange(kernel_size, device=device) - (kernel_size - 1) / 2
     gauss_1d = torch.exp(-0.5 * (x / sigma) ** 2)
     gauss_2d = torch.outer(gauss_1d, gauss_1d)

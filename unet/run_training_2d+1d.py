@@ -13,13 +13,12 @@ if __name__ == "__main__":
         # Final weight of 2d loss
         # (Used only if both losses are used)
         "loss_2d_final_w": ...,
-        # Apply l1 regularization on the network output
+        # Apply sparsity regularization on the network output
         # This is the weight for the regularization, 0 means off
-        # Includes penalty negative  values
         "l1_regularization": 0,
         # Total variation reg
         "total_variation": 0,
-        # Local consistency reg
+        # Local consistency loss
         "local_consistency_reg": 0,
         # This constant controls noise level, higher value means more noise reduction
         # It is a multiplier for noise level estimated for each image

@@ -26,19 +26,25 @@ def entropy(img_tensor):
 @torch.no_grad()
 def evaluate(model, loader, device, criterion=None, return_every=0, a=1, b=1):
     """
-    Evaluate model on DataLoader.
-    
+    Evaluate the model on a given DataLoader, tracking 2D, 1D, and informational metrics.
+
     Args:
-        model: your ResidualUNet
-        loader: DataLoader
-        device: torch device
-        criterion: loss function (optional)
-        return_examples: number of example predictions to return
-        
+        model: The network (e.g., ResidualUNet) being evaluated.
+        loader: DataLoader containing the evaluation dataset.
+        device: torch.device ('cuda' or 'cpu') to run the evaluation on.
+        criterion (optional): Loss function. Special metrics are extracted 
+            if this is an instance of `CombinedLoss`.
+        return_every (int): Batch interval at which to save a small subset of 
+            example predictions (e.g., 5 saves examples every 5th batch). 
+            Set to 0 to disable.
+        a (float): Weight multiplier for the 2D image loss component.
+        b (float): Weight multiplier for the 1D profile loss component.
+
     Returns:
-        avg_loss: average loss over dataset (if criterion given)
-        avg_psnr: average PSNR
-        examples: list of tuples (input, clean_pred, target) for inspection
+        results (dict): Dictionary tracking pixel/sample-normalized performance metrics 
+            such as "avg_psnr", "avg_loss", "reverse_kl_div", and "output_entropy".
+        examples (list): Periodic snapshots containing tuples of 
+            (original_image, clean_pred, target_2d, clean_1d, target_1d) stored on CPU.
     """
     model.eval()
     total_loss = 0.0
