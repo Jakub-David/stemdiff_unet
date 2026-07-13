@@ -5,23 +5,29 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "bground>=1.3.3",
+    "ediff>=1.2.0",
     "h5py>=3.16.0",
+    "idiff",
     "matplotlib>=3.10.8",
     "numpy>=2.4.1",
     "onnxruntime>=1.24.4",
-    "onnxruntime-gpu>=1.24.4",
     "onnxscript>=0.6.2",
     "opencv-python>=4.13.0.92",
     "pandas>=2.3.3",
-    "pdoc>=16.0.0",
     "pillow>=12.1.0",
     "pybaselines>=1.2.1",
     "pymatgen>=2025.10.7",
     "scikit-image>=0.26.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.0",
+    "stemdiff",
     "tensorboard>=2.20.0",
     "torch>=2.11.0",
     "torchmetrics>=1.9.0",
     "torchvision>=0.26.0",
 ]
+
+[tool.uv.sources]
+idiff = { git = "https://github.com/mirekslouf/idiff.git", rev = "088a4f24f728474443a5b9124506da84a4cf2e59" }
+stemdiff = { git = "https://github.com/mirekslouf/stemdiff.git", rev = "f7ffb138b9c21207bec2c84714bc38a9e457a254" }
