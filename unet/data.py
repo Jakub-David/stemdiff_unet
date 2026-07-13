@@ -6,7 +6,6 @@ import random
 from pathlib import Path
 import h5py
 import cv2 as cv
-import stemdiff as sd
 import ediff as ed
 
 CALIBRATION_CONSTANTS = {
@@ -178,7 +177,7 @@ class STEMDataset(Dataset):
             max_prof_len = max(max_prof_len, len(p))
 
             db_path = dataset_dir / "dbase" / f"db_{self.input_h5.stem}_{key}"
-            db = sd.dbase.read_database(db_path)
+            db = pd.read_csv(db_path, index_col=0)
             c = db[["Xcenter", "Ycenter"]].to_numpy().astype(np.float32)
             c /= 4 # Centers are for 4x images
             self.centers[key] = c

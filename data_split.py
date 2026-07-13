@@ -108,9 +108,9 @@ for p, n in zip(paths, names):
     print(n, "test:", test[n].shape)
     print()
 
-    stemdiff.dbase.save_database(df_train, output_dir / "dbase" / f"db_train_{n}")
-    stemdiff.dbase.save_database(df_val, output_dir / "dbase" / f"db_val_{n}")
-    stemdiff.dbase.save_database(df_test, output_dir / "dbase" / f"db_test_{n}")
+    df_train.to_csv(output_dir / "dbase" / f"db_train_{n}")
+    df_val.to_csv(output_dir / "dbase" / f"db_val_{n}")
+    df_test.to_csv(output_dir / "dbase" / f"db_test_{n}")
 
 save_h5(train, output_dir / "train.h5")
 save_h5(val, output_dir / "val.h5")
@@ -122,28 +122,19 @@ _, _, df_feo_shell = load_cached(
     Path("DATA.STEMDIFF/FeO-Shell_Cimc"), 
     "feo_shell"
 )
-stemdiff.dbase.save_database(
-    df_feo_shell, 
-    output_dir / "dbase" / f"db_test_feo_shell"
-)
+df_feo_shell.to_csv(output_dir / "dbase" / f"db_test_feo_shell")
 
 _, _, df_tio2a = load_cached(
     Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-A.M2.R2"), 
     "tio2-a"
 )
-stemdiff.dbase.save_database(
-    df_tio2a, 
-    output_dir / "dbase" / f"db_test_tio2-a"
-)
+df_tio2a.to_csv(output_dir / "dbase" / f"db_test_tio2-a")
 
 _, _, df_tio2r = load_cached(
     Path("DATA.STEMDIFF/X2_TIO2/VZ4.TIO2-R.M2.R2"), 
     "tio2-r"
 )
-stemdiff.dbase.save_database(
-    df_tio2r, 
-    output_dir / "dbase" / f"db_test_tio2-r"
-)
+df_tio2r.to_csv(output_dir / "dbase" / f"db_test_tio2-r")
 
 
 
@@ -174,6 +165,6 @@ for p, n in zip(paths, names):
     SDATA, DIFFIMAGES, df = load_cached(p, n)
     train[n] = load_arrays(SDATA, df)
     print(n, "train:", train[n].shape)
-    stemdiff.dbase.save_database(df, output_dir / "dbase" / f"db_train_{n}")
+    df.to_csv(output_dir / "dbase" / f"db_train_{n}")
 
 save_h5(train, output_dir / "train.h5")

@@ -4,6 +4,7 @@ import ediff as ed
 import idiff.bkg2d as bkg
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 def eld_to_np(ELD):
     return ELD.diffractogram.loc[:, ("q", "I")].to_numpy().T
@@ -106,7 +107,7 @@ def load_cached(path, name, db_dir="dbase", db_file=None, calculate_db=True):
 
     db_dir = Path(db_dir)
     if db_file is None:
-        dbase = Path(db_dir / f"dbase_{name}.zip")
+        dbase = Path(db_dir / f"dbase_{name}.csv")
     else:
         dbase = Path(db_dir / db_file)
 
@@ -114,8 +115,9 @@ def load_cached(path, name, db_dir="dbase", db_file=None, calculate_db=True):
         print("dbase not found - calculating new dbase")
         df = sd.dbase.calc_database(SDATA, DIFFIMAGES)
         db_dir.mkdir(exist_ok=True)
-        sd.dbase.save_database(df, dbase)
+        df.to_csv(dbase)
     else:
-        df = sd.dbase.read_database(dbase)
+        df = pd.read_csv(dbase, index_col=0)
+        df["DatafileName"] = df["DatafileName"].apply(Path)
 
     return SDATA, DIFFIMAGES, df
