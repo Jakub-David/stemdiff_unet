@@ -167,8 +167,6 @@ def train(config: dict, experiment_name=None):
     else:
         model = ResidualUNet(**model_params).to(device)
 
-    model = torch.compile(model)
-
     # -------------------------------
     # Loss & optimizer
     # -------------------------------

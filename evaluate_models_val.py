@@ -72,7 +72,7 @@ metrics = [
 ]
 
 db_dir = Path("unet/dataset/dbase/")
-results_dir = Path("evaluation_results_val") / training_type
+results_dir = Path("evaluation_results_val")
 models_dir = results_dir / "models"
 models_dir.mkdir(exist_ok=True, parents=True)
 

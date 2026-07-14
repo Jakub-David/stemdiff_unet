@@ -71,7 +71,6 @@ DATASETS = {
     "au": {
         "path": DATA_DIR / "1_AU/EX1.AU/DATA",
         "cif_path": "DATA.STEMDIFF/cif/au_9008463.cif",
-        "xrd_path": "DATA.STEMDIFF/profiles/au",
         "xrange": (55, 800),
         "xrd_range": None,
         "db_path": "unet/dataset/dbase/",
@@ -81,7 +80,6 @@ DATASETS = {
     "tbf3": {
         "path": DATA_DIR / "2_TBF3/VZ2.TBF3.R2",
         "cif_path": "DATA.STEMDIFF/cif/1530594_tbf3.cif",
-        "xrd_path": "DATA.STEMDIFF/profiles/tbf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.9),
         "db_path": "unet/dataset/dbase/",
@@ -91,7 +89,6 @@ DATASETS = {
     "feo": {
         "path": DATA_DIR / "3_FEO_PURE/FeO-Pure_Cimc",
         "cif_path": "DATA.STEMDIFF/cif/Fe3O4.cif",
-        "xrd_path": "DATA.STEMDIFF/profiles/feo",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
         "db_path": "unet/dataset/dbase/",
@@ -101,7 +98,6 @@ DATASETS = {
     "laf3": {
         "path": DATA_DIR / "4_MARUSKA_LAF3/D_MARUSKA_C214",
         "cif_path": "DATA.STEMDIFF/cif/laf3_9008114.cif",
-        "xrd_path": "DATA.STEMDIFF/profiles/laf3",
         "xrange": (32, 800),
         "xrd_range": (0, 10),
         "db_path": "unet/dataset/dbase/",
@@ -111,7 +107,6 @@ DATASETS = {
     "gdf3": {
         "path": DATA_DIR / "X1_GDF3/VZ2.GDF3.R2",
         "cif_path": "DATA.STEMDIFF/cif/1530594_gdf3.cif",
-        "xrd_path": "DATA.STEMDIFF/profiles/gdf3",
         "xrange": (30, 800),
         "xrd_range": (0, 1.8),
         "db_path": "unet/dataset/dbase/",
