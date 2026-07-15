@@ -11,9 +11,13 @@ wheels/
 
 
 # Data
-DATA.STEMDIFF/
+DATA.STEMDIFF/*
 unet/dataset*/
 unet/runs*/
+
+# Allow cif files and center in data folder
+!DATA.STEMDIFF/center.txt
+!DATA.STEMDIFF/cif/
 
 # Grid search
 grid_search_cache/

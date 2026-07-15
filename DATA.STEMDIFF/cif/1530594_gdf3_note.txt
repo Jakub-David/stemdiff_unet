@@ -1,0 +1,9 @@
+CIF soubor pro GdF3
+-------------------
+* GdF3 neni v COD-databazi
+* Reseni: stazen CIF pro TbF3 a rucne modifikovan dle logiky a literatury
+* Modifikace CIF souboru:
+	- Tb zameneno za Gd
+	- mrizkove parametry TbF3 zameneny za GdF3
+* Literatura potvrzujici ze GdF3 a TbF3 izostrukturni + davajici mrizk.par:
+	- M:\MIREK\PRAC\_DIFF\PCELL\GDF3-TBF3
