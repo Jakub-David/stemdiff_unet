@@ -41,11 +41,25 @@ For example:
 uv run run_training_2d.py
 ```
 
+## Tested Environment
+
+The project was tested on Linux using the following hardware:
+
+* CPU: AMD Ryzen 5 9600X
+* RAM: 32 GB
+* GPU: NVIDIA GeForce RTX 5070
+
+
 ## Repository Structure
 
 ```text
-DATA.STEMDIFF/    Dataset
-unet/             U-Net implementation and related source code
+DATA.STEMDIFF/              Dataset
+unet/                       U-Net implementation and related source code
+unet/dataset/               Prepared train/validation/test datasets
+unet/dataset_all/           Dataset used for all-data self-supervised training
+unet/runs/                  Training checkpoints and logs
+evaluation_results_val/     Validation evaluation outputs
+evaluation_results/         Final evaluation outputs
 ```
 
 ## Experiment Pipeline
@@ -79,6 +93,12 @@ uv run create_targets.py
 Generates labels for supervised training.
 
 ### 4. Train models
+
+The training scripts are located in the unet directory and must be executed from that directory:
+
+```bash
+cd unet
+```
 
 Supervised training:
 
