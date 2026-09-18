@@ -1,5 +1,7 @@
 # STEMDIFF UNET
 
+Training and evaluation code for NN for background subtraction in 4D-STEM/PNBD data used in https://github.com/mirekslouf/stemdiff.
+
 ## Dataset
 
 Download the dataset from:
